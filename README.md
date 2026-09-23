@@ -1,5 +1,8 @@
 # Tejun.ts
 
+![Tejun.ts](./logo/logo.png "Tejun.ts")
+
+
 Markdownで書いた手順書を、**HTML** と **Excel（.xlsx）** の手順書に変換するCLIツールです。
 
 - 手順書はMarkdownで書くので、Gitで差分管理ができます。
