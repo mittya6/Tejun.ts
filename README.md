@@ -13,12 +13,30 @@ Markdownで書いた手順書を、**HTML** と **Excel（.xlsx）** の手順�
 
 ## インストール
 
+### GitHubからインストールする（おすすめ）
+
+使いたいプロジェクトで次のコマンドを実行します。インストール時に自動でビルドされます。
+
 ```bash
-npm install
-npm run build
+npm install git+https://github.com/mittya6/Tejun.ts.git
+npx tejun ./procedure.md -o ./output
 ```
 
-ビルド後は `node dist/index.js` で実行できます。`npm link` しておくと `tejun` コマンドとして使えます。
+インストールせずに1回だけ使うこともできます。
+
+```bash
+npx github:mittya6/Tejun.ts ./procedure.md -o ./output
+```
+
+### ソースから使う
+
+```bash
+git clone https://github.com/mittya6/Tejun.ts.git
+cd Tejun.ts
+npm install
+```
+
+`npm install` のときにビルドも行われるので、`node dist/index.js` で実行できます。`npm link` しておくと `tejun` コマンドとして使えます。
 
 ## 使い方
 
