@@ -4,42 +4,27 @@ import { marked } from 'marked';
 import { renderTemplate } from '../template/templateEngine';
 import { parseFrontMatter } from '../parser/markdownParser';
 import { GeneratorError, TemplateError } from '../utils/errors';
-import { embedImagesInHtml, isLocalImagePath, readImageAsDataUri } from '../utils/imageUtils';
-import type { ProcedureDocument, Step, TemplateContext } from '../parser/types';
+import { embedImagesInHtml } from '../utils/imageUtils';
+import type { DocNode, ProcedureDocument, TemplateContext } from '../parser/types';
 
 /** 未指定時に使用するデフォルトHTMLテンプレートのパス */
 const DEFAULT_HTML_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'default.html');
 
 /**
- * ステップ内の画像パスをData URIに変換する
+ * ツリーの各要素のHTML（内容・本文）に含まれる `<img>` タグの画像をData URIに変換する
  *
- * `step.image`（期待値ブロック内で検出された画像）に加え、`instruction` / `expected` の
- * HTML本文中に含まれる `<img>` タグの画像も対象とする。画像ファイルが見つからない場合は
- * ログを出力して元のパスを維持する。
+ * 画像ファイルが見つからない場合は元のパスを維持する（`embedImagesInHtml` の動作に従う）。
  */
-async function embedImages(steps: Step[], basePath: string): Promise<Step[]> {
-  return Promise.all(
-    steps.map(async (step) => {
-      const instruction = await embedImagesInHtml(step.instruction, basePath);
-      // 期待値内の画像は元の記述順を保つため、画像を含む版を本文として使う
-      const expected = await embedImagesInHtml(step.expectedInline ?? step.expected, basePath);
-
-      // 画像は本文内に埋め込み済みなので、テンプレート側の `{{image.*}}` での二重表示を避ける
-      if (step.expectedInline !== undefined) {
-        return { ...step, instruction, expected, image: undefined };
-      }
-      if (!step.image || !isLocalImagePath(step.image.src)) {
-        return { ...step, instruction, expected };
-      }
-      try {
-        const dataUri = await readImageAsDataUri(step.image.src, basePath);
-        return { ...step, instruction, expected, image: { ...step.image, src: dataUri } };
-      } catch {
-        console.warn(`[Tejun.ts] 画像を読み込めませんでした: ${step.image.src}`);
-        return { ...step, instruction, expected };
-      }
-    }),
-  );
+async function embedImages(node: DocNode, basePath: string): Promise<DocNode> {
+  return {
+    ...node,
+    // 見出しの内容はプレーンテキストなので対象外
+    content: node.symbol.startsWith('#')
+      ? node.content
+      : await embedImagesInHtml(node.content, basePath),
+    body: node.body && (await embedImagesInHtml(node.body, basePath)),
+    children: await Promise.all(node.children.map((child) => embedImages(child, basePath))),
+  };
 }
 
 /**
@@ -61,21 +46,10 @@ export async function generateHtml(
   const basePath = path.dirname(resolvedInputPath);
 
   // 画像をData URIに変換
-  const stepsWithImages = await embedImages(doc.steps, basePath);
+  const rootWithImages = await embedImages(doc.root, basePath);
   const overviewWithImages = doc.overview
     ? await embedImagesInHtml(doc.overview, basePath)
     : doc.overview;
-  const h1BodyWithImages = doc.h1Body ? await embedImagesInHtml(doc.h1Body, basePath) : doc.h1Body;
-  const h1BlockquoteWithImages = doc.h1Blockquote
-    ? await embedImagesInHtml(doc.h1Blockquote, basePath)
-    : doc.h1Blockquote;
-  const docWithImages: ProcedureDocument = {
-    ...doc,
-    steps: stepsWithImages,
-    overview: overviewWithImages,
-    h1Body: h1BodyWithImages,
-    h1Blockquote: h1BlockquoteWithImages,
-  };
 
   // 入力Markdown全文（Front Matter除く）をHTMLに変換（テンプレートの `${markdown}` 用）
   let markdownHtml: string;
@@ -103,16 +77,13 @@ export async function generateHtml(
 
   // テンプレートの展開
   const ctx: TemplateContext = {
-    document: { title: docWithImages.title },
-    date: docWithImages.date,
-    update: docWithImages.update,
-    steps: docWithImages.steps,
+    title: doc.title,
+    date: doc.date,
+    update: doc.update,
+    meta: doc.meta,
+    root: rootWithImages,
     markdown: markdownHtml,
-    overview: docWithImages.overview,
-    h1Body: docWithImages.h1Body,
-    h1Blockquote: docWithImages.h1Blockquote,
-    firstHeadings: docWithImages.firstHeadings,
-    meta: docWithImages.meta,
+    overview: overviewWithImages,
   };
 
   let html: string;

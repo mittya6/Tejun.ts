@@ -4,28 +4,40 @@ import path from 'path';
 import os from 'os';
 import { generateHtml } from './htmlGenerator';
 import { GeneratorError } from '../utils/errors';
+import { parseMarkdown } from '../parser/markdownParser';
 import type { ProcedureDocument } from '../parser/types';
 
 /** 1x1透明PNG（テスト用フィクスチャ） */
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-const SAMPLE_DOC: ProcedureDocument = {
-  title: 'ログイン手順',
-  date: '2026/06/24',
-  update: '2026/06/25',
-  firstHeadings: {},
-  meta: {},
-  steps: [
-    {
-      index: 1,
-      category: 'カテゴリA',
-      title: '手順1',
-      instruction: '<p>操作内容</p>',
-      expected: '<p>期待結果</p>',
-    },
-  ],
-};
+const SAMPLE_DOC: ProcedureDocument = parseMarkdown(`---
+date: "2026/06/24"
+update: "2026/06/25"
+---
+# ログイン手順
+
+## カテゴリA
+
+### 手順1
+
+操作内容
+
+> 期待結果
+`);
+
+/** 期待される結果に画像を含む手順書を作る */
+function docWithImage(src: string): ProcedureDocument {
+  return parseMarkdown(`# ログイン手順
+
+## カテゴリA
+
+### 手順1
+
+> 期待結果
+> ![スクリーンショット](${src})
+`);
+}
 
 describe('generateHtml', () => {
   let tmpDir: string;
@@ -79,7 +91,7 @@ describe('generateHtml', () => {
     const templatePath = path.join(tmpDir, 'custom.html');
     await fs.promises.writeFile(
       templatePath,
-      '<h1>{{document.title}}</h1>{{#each steps}}<p>{{title}}</p>{{/each}}',
+      '<h1>{{meta.title}}</h1>{{#each ### steps}}<p>{{###}}</p>{{/each}}',
       'utf-8',
     );
 
@@ -92,26 +104,14 @@ describe('generateHtml', () => {
     const imagePath = path.join(tmpDir, 'screen.png');
     await fs.promises.writeFile(imagePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
 
-    const docWithImage: ProcedureDocument = {
-      ...SAMPLE_DOC,
-      steps: [
-        { ...SAMPLE_DOC.steps[0], image: { src: './screen.png', alt: 'スクリーンショット' } },
-      ],
-    };
-
-    const outPath = await generateHtml(docWithImage, inputFile, outputDir);
+    const outPath = await generateHtml(docWithImage('./screen.png'), inputFile, outputDir);
     const html = await fs.promises.readFile(outPath, 'utf-8');
     expect(html).toContain('data:image/png;base64,');
     expect(html).not.toContain('./screen.png');
   });
 
   it('画像ファイルが存在しない場合は元のパスのまま処理を継続する', async () => {
-    const docWithImage: ProcedureDocument = {
-      ...SAMPLE_DOC,
-      steps: [{ ...SAMPLE_DOC.steps[0], image: { src: './missing.png', alt: 'missing' } }],
-    };
-
-    const outPath = await generateHtml(docWithImage, inputFile, outputDir);
+    const outPath = await generateHtml(docWithImage('./missing.png'), inputFile, outputDir);
     const html = await fs.promises.readFile(outPath, 'utf-8');
     expect(html).toContain('./missing.png');
   });

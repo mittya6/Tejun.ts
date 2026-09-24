@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseMarkdown } from './markdownParser';
+import { findNodePaths } from './docTree';
 import { ParseError } from '../utils/errors';
+import type { DocNode, NodeSymbol } from './types';
 
 const SAMPLE_MD = `
 # ユーザーログイン手順
@@ -31,90 +33,132 @@ Google Chromeを起動し、以下のURLにアクセスする。
 > ログイン画面へ遷移すること。
 `;
 
+/** `node` 配下の `symbol` の要素を文書順に返す */
+function nodesOf(node: DocNode, symbol: NodeSymbol): DocNode[] {
+  return findNodePaths(node, symbol).map((path) => path[path.length - 1]);
+}
+
 describe('parseMarkdown', () => {
-  describe('正常系', () => {
-    it('ドキュメントタイトル（H1）を正しく解析する', () => {
+  describe('見出しのツリー', () => {
+    it('ルートは文書全体で、H1はその子になり、最初のH1がドキュメントタイトルになる', () => {
       const doc = parseMarkdown(SAMPLE_MD);
       expect(doc.title).toBe('ユーザーログイン手順');
+      expect(doc.root.symbol).toBe('root');
+      expect(doc.root.children.map((n) => [n.symbol, n.content])).toEqual([
+        ['#', 'ユーザーログイン手順'],
+      ]);
     });
 
-    it('ステップ数を正しく解析する', () => {
+    it('H2がH1の子、H3がH2の子になる', () => {
       const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps).toHaveLength(3);
+      const h2s = doc.root.children[0].children;
+      expect(h2s.map((n) => [n.symbol, n.content])).toEqual([
+        ['##', '1. ログイン画面へのアクセス'],
+        ['##', '2. ログアウト'],
+      ]);
+      expect(nodesOf(h2s[0], '###').map((n) => n.content)).toEqual([
+        '1.1 ブラウザの起動',
+        '1.2 認証情報の入力',
+      ]);
+      expect(nodesOf(h2s[1], '###').map((n) => n.content)).toEqual(['2.1 ログアウト操作']);
     });
 
-    it('各ステップに1始まりの連番が付与される', () => {
+    it('見出しの連番は文書全体を通した同じレベルの連番になる', () => {
       const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps[0].index).toBe(1);
-      expect(doc.steps[1].index).toBe(2);
-      expect(doc.steps[2].index).toBe(3);
+      expect(nodesOf(doc.root, '##').map((n) => n.index)).toEqual([1, 2]);
+      expect(nodesOf(doc.root, '###').map((n) => n.index)).toEqual([1, 2, 3]);
     });
 
-    it('大項目（H2）が各ステップに正しく設定される', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps[0].category).toBe('1. ログイン画面へのアクセス');
-      expect(doc.steps[1].category).toBe('1. ログイン画面へのアクセス');
-      expect(doc.steps[2].category).toBe('2. ログアウト');
-    });
+    it('H4〜H6も上位の見出しの子になる', () => {
+      const doc = parseMarkdown(`# タイトル
 
-    it('手順タイトル（H3）が正しく設定される', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps[0].title).toBe('1.1 ブラウザの起動');
-      expect(doc.steps[1].title).toBe('1.2 認証情報の入力');
-    });
-
-    it('操作手順本文がHTMLとして生成される', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      // コード要素が含まれていること
-      expect(doc.steps[0].instruction).toContain('<code>');
-      expect(doc.steps[0].instruction).toContain('https://example.com/login');
-    });
-
-    it('期待値がHTMLとして生成される', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps[0].expected).toContain('ログイン画面が正常に表示');
-      // 「期待値」ヘッダーが除去されていること
-      expect(doc.steps[0].expected).not.toContain('期待値');
-    });
-
-    it('生成日が設定される', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.date).toBeTruthy();
-      expect(typeof doc.date).toBe('string');
-    });
-  });
-
-  describe('firstHeadings（文書全体で最初に登場した各見出しレベル）', () => {
-    it('H1〜H3それぞれ最初の1件だけを記録し、2件目以降は無視する', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.firstHeadings.h1).toBe('ユーザーログイン手順');
-      expect(doc.firstHeadings.h2).toBe('1. ログイン画面へのアクセス');
-      expect(doc.firstHeadings.h3).toBe('1.1 ブラウザの起動');
-    });
-
-    it('登場しない見出しレベル（H4〜H6）はundefinedになる', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.firstHeadings.h4).toBeUndefined();
-      expect(doc.firstHeadings.h5).toBeUndefined();
-      expect(doc.firstHeadings.h6).toBeUndefined();
-    });
-
-    it('H4〜H6が実際に含まれる場合はそれぞれ記録される', () => {
-      const md = `# タイトル
-
+### 見出し3
 #### 見出し4
 ##### 見出し5
 ###### 見出し6
-`;
-      const doc = parseMarkdown(md);
-      expect(doc.firstHeadings.h4).toBe('見出し4');
-      expect(doc.firstHeadings.h5).toBe('見出し5');
-      expect(doc.firstHeadings.h6).toBe('見出し6');
+#### 見出し4-2
+`);
+      const [h3] = nodesOf(doc.root, '###');
+      expect(h3.symbol).toBe('###');
+      expect(h3.children.map((n) => n.content)).toEqual(['見出し4', '見出し4-2']);
+      expect(h3.children[0].children[0].children[0].content).toBe('見出し6');
+    });
+
+    it('見出しの本文（body）は最初の引用より前の内容をHTML化したもの', () => {
+      const doc = parseMarkdown(SAMPLE_MD);
+      const [step1, step2] = nodesOf(doc.root, '###');
+      expect(step1.body).toContain('<code>https://example.com/login</code>');
+      expect(step1.body).not.toContain('ログイン画面が正常に表示');
+      expect(step2.body).toContain('<li>ID: <code>test_user</code></li>');
+    });
+
+    it('本文の無い見出しの body は空文字になる', () => {
+      const doc = parseMarkdown(SAMPLE_MD);
+      expect(nodesOf(doc.root, '##')[0].body).toBe('');
+    });
+  });
+
+  describe('ブロック要素', () => {
+    it('引用（>）は「期待値」ヘッダーを除いたHTMLになる', () => {
+      const doc = parseMarkdown(SAMPLE_MD);
+      const [quote] = nodesOf(nodesOf(doc.root, '###')[0], '>');
+      expect(quote.content).toContain('ログイン画面が正常に表示');
+      expect(quote.content).not.toContain('期待値');
+    });
+
+    it('箇条書き（- * +）の項目は - 、番号付きリストの項目は 1. になり、同じ親の中で連番が付く', () => {
+      const doc = parseMarkdown(`# T
+
+- ぶどう
+- リンゴ
+
+* オレンジ
+
+1. 最初
+2. 次
+`);
+      expect(doc.root.children[0].children.map((n) => [n.symbol, n.content, n.index])).toEqual([
+        ['-', 'ぶどう', 1],
+        ['-', 'リンゴ', 2],
+        ['-', 'オレンジ', 3],
+        ['1.', '最初', 1],
+        ['1.', '次', 2],
+      ]);
+    });
+
+    it('入れ子のリストの項目は外側の項目の子になる', () => {
+      const doc = parseMarkdown(`# T
+
+- 果物
+  - ぶどう
+  - リンゴ
+`);
+      const [fruit] = doc.root.children[0].children;
+      expect(fruit.content).toBe('果物<ul>\n<li>ぶどう</li>\n<li>リンゴ</li>\n</ul>\n');
+      expect(fruit.children.map((n) => n.content)).toEqual(['ぶどう', 'リンゴ']);
+    });
+
+    it('コードブロック（```）はHTML化され、リストの項目の中のものも子になる', () => {
+      const doc = parseMarkdown(`# T
+
+\`\`\`sh
+ls
+\`\`\`
+
+1. 実行する
+   \`\`\`text
+   clean package
+   \`\`\`
+`);
+      const [code, item] = doc.root.children[0].children;
+      expect(code.symbol).toBe('```');
+      expect(code.content).toBe('<pre><code class="language-sh">ls\n</code></pre>\n');
+      expect(item.children[0].content).toContain('clean package');
     });
   });
 
   describe('概要文（overview）', () => {
-    it('最初のH2より前のテキストがoverviewとして抽出される', () => {
+    it('最初のH2以降の見出しより前のテキストがoverviewとして抽出される', () => {
       const md = `---
 title: "テスト"
 ---
@@ -136,11 +180,9 @@ title: "テスト"
     it('概要文がない場合はundefinedになる', () => {
       const doc = parseMarkdown(SAMPLE_MD);
       expect(doc.overview).toBeUndefined();
-      expect(doc.h1Body).toBeUndefined();
-      expect(doc.h1Blockquote).toBeUndefined();
     });
 
-    it('概要文はH3と同じルールで h1Body（最初のblockquoteより前）と h1Blockquote（最初のblockquote）に分かれる', () => {
+    it('概要文は見出しと同じルールでH1の body と最初の引用に分かれる', () => {
       const md = `# タイトル
 
 概要の本文です。
@@ -155,14 +197,14 @@ title: "テスト"
 本文
 `;
       const doc = parseMarkdown(md);
-      expect(doc.h1Body).toBe('<p>概要の本文です。</p>\n');
-      expect(doc.h1Blockquote).toBe('<p>補足です。</p>\n');
+      expect(doc.root.children[0].body).toBe('<p>概要の本文です。</p>\n');
+      expect(nodesOf(doc.root, '>')[0].content).toBe('<p>補足です。</p>\n');
       expect(doc.overview).toContain('後続の文');
     });
   });
 
   describe('画像の抽出', () => {
-    it('blockquote内の画像を image フィールドとして抽出する', () => {
+    it('引用内の画像を image として抽出し、HTMLには元の位置のまま残す', () => {
       const md = `# テスト
 
 ## カテゴリ
@@ -175,31 +217,14 @@ title: "テスト"
 > ![スクリーンショット](./images/screen.png)
 `;
       const doc = parseMarkdown(md);
-      expect(doc.steps[0].image).toBeDefined();
-      expect(doc.steps[0].image?.src).toBe('./images/screen.png');
-      expect(doc.steps[0].image?.alt).toBe('スクリーンショット');
+      const [quote] = nodesOf(doc.root, '>');
+      expect(quote.image).toEqual({ src: './images/screen.png', alt: 'スクリーンショット' });
+      expect(quote.content).toContain('<img src="./images/screen.png"');
     });
 
-    it('画像のないステップでは image が undefined になる', () => {
+    it('画像の無い引用では image が undefined になる', () => {
       const doc = parseMarkdown(SAMPLE_MD);
-      expect(doc.steps[0].image).toBeUndefined();
-    });
-
-    it('期待値内の画像URLが expected HTML から除去される', () => {
-      const md = `# テスト
-
-## カテゴリ
-
-### 手順1
-操作内容
-
-> **期待値**
-> 期待テキスト
-> ![img](./img.png)
-`;
-      const doc = parseMarkdown(md);
-      // expected に img タグが混入しないこと（画像は image フィールドで管理）
-      expect(doc.steps[0].expected).not.toContain('./img.png');
+      expect(nodesOf(doc.root, '>')[0].image).toBeUndefined();
     });
   });
 
@@ -213,11 +238,11 @@ title: "テスト"
       expect(() => parseMarkdown('')).toThrow(ParseError);
     });
 
-    it('H1のみのMarkdownでもエラーにならず、ステップ数0で返る', () => {
+    it('H1のみのMarkdownでもエラーにならず、H1の子要素0件で返る', () => {
       const md = `# タイトルのみ`;
       const doc = parseMarkdown(md);
       expect(doc.title).toBe('タイトルのみ');
-      expect(doc.steps).toHaveLength(0);
+      expect(doc.root.children[0].children).toHaveLength(0);
     });
   });
 

@@ -5,57 +5,47 @@ import os from 'os';
 import ExcelJS from 'exceljs';
 import { generateExcel } from './excelGenerator';
 import { GeneratorError } from '../utils/errors';
+import { parseMarkdown } from '../parser/markdownParser';
 import type { ProcedureDocument } from '../parser/types';
 
 /** 1x1透明PNG（テスト用フィクスチャ） */
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-const SAMPLE_DOC: ProcedureDocument = {
-  title: 'ログイン手順',
-  date: '2026/06/24',
-  firstHeadings: {},
-  meta: {},
-  steps: [
-    {
-      index: 1,
-      category: 'カテゴリA',
-      title: '手順1',
-      instruction: '<p>操作内容1</p>',
-      expected: '<p>期待結果1</p>',
-    },
-    {
-      index: 2,
-      category: 'カテゴリA',
-      title: '手順2',
-      instruction: '<p>操作内容2</p>',
-      expected: '<p>期待結果2</p>',
-    },
-  ],
-};
+const SAMPLE_MD = `---
+date: "2026/06/24"
+---
+# ログイン手順
 
-/** {{#each steps}} 行を1行持つ最小限のカスタムテンプレートを作成する */
+## カテゴリA
+
+### 手順1
+
+操作内容1
+
+- ぶどう
+- リンゴ
+
+> 期待結果1
+
+### 手順2
+
+操作内容2
+
+> 期待結果2
+`;
+
+const SAMPLE_DOC: ProcedureDocument = parseMarkdown(SAMPLE_MD);
+
+/** 行ループの行を1行持つ最小限のカスタムテンプレートを作成する */
 async function writeCustomTemplate(filePath: string): Promise<void> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('テンプレート');
-  ws.getRow(1).getCell(1).value = '{{document.title}}';
-  ws.getRow(2).getCell(1).value = '{{#each steps}}';
-  ws.getRow(2).getCell(2).value = '{{category}}';
-  ws.getRow(2).getCell(3).value = '{{title}}';
-  ws.getRow(2).getCell(4).value = '{{instruction}}';
-  ws.getRow(2).getCell(5).value = '{{/each}}';
-  await wb.xlsx.writeFile(filePath);
-}
-
-/** {{#each h3 steps}}（{{#each steps}}の別名）行を1行持つ最小限のカスタムテンプレートを作成する */
-async function writeCustomTemplateH3Alias(filePath: string): Promise<void> {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('テンプレート');
   ws.getRow(1).getCell(1).value = '{{meta.title}}';
-  ws.getRow(2).getCell(1).value = '{{#each h3 steps}}';
-  ws.getRow(2).getCell(2).value = '{{h2}}';
-  ws.getRow(2).getCell(3).value = '{{h3}}';
-  ws.getRow(2).getCell(4).value = '{{procedure}}';
+  ws.getRow(2).getCell(1).value = '{{#each ### steps}}';
+  ws.getRow(2).getCell(2).value = '{{##}}';
+  ws.getRow(2).getCell(3).value = '{{###}}';
+  ws.getRow(2).getCell(4).value = '{{###.body}}';
   ws.getRow(2).getCell(5).value = '{{/each}}';
   await wb.xlsx.writeFile(filePath);
 }
@@ -102,22 +92,16 @@ describe('generateExcel', () => {
     expect(ws.getRow(5).getCell(4).value).toContain('手順2');
   });
 
-  it('{{#each h2 steps}}{{h2.index}} は大項目ごとの連番に置換される', async () => {
-    const doc: ProcedureDocument = {
-      ...SAMPLE_DOC,
-      steps: [
-        ...SAMPLE_DOC.steps,
-        { ...SAMPLE_DOC.steps[0], index: 3, category: 'カテゴリB', title: '手順3' },
-      ],
-    };
+  it('デフォルトテンプレートの {{##.index}} は大項目ごとの連番に置換される', async () => {
+    const doc = parseMarkdown(`${SAMPLE_MD}\n## カテゴリB\n\n### 手順3\n`);
     const outPath = await generateExcel(doc, inputFile, outputDir);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
-    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(1).value)).toEqual(['1', '1', '2']);
+    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '2-1', '3-2']);
   });
 
-  it('カスタムテンプレートの {{#each steps}} 行を展開する', async () => {
+  it('カスタムテンプレートの行ループの行を展開する', async () => {
     const templatePath = path.join(tmpDir, 'custom.xlsx');
     await writeCustomTemplate(templatePath);
 
@@ -132,19 +116,37 @@ describe('generateExcel', () => {
     expect(ws.getRow(3).getCell(3).value).toBe('手順2');
   });
 
-  it('カスタムテンプレートの {{#each h3 steps}}（{{#each steps}}の別名）行を展開する', async () => {
-    const templatePath = path.join(tmpDir, 'custom-h3.xlsx');
-    await writeCustomTemplateH3Alias(templatePath);
+  it('セル内で閉じた {{#each - steps}} はセル内で箇条書きの項目を繰り返す', async () => {
+    const templatePath = path.join(tmpDir, 'custom-list.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}{{###}}';
+    tplWs.getRow(1).getCell(2).value = '{{#each - steps}}・{{-}}\n{{/each}}';
+    tplWs.getRow(1).getCell(3).value = '{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
 
-    expect(ws.getRow(1).getCell(1).value).toBe('ログイン手順');
-    expect(ws.getRow(2).getCell(2).value).toBe('カテゴリA');
-    expect(ws.getRow(2).getCell(3).value).toBe('手順1');
-    expect(ws.getRow(3).getCell(3).value).toBe('手順2');
+    expect(ws.getRow(1).getCell(1).value).toBe('手順1');
+    expect(ws.getRow(1).getCell(2).value).toBe('・ぶどう\n・リンゴ\n');
+    expect(ws.getRow(2).getCell(1).value).toBe('手順2');
+    expect(ws.getRow(2).getCell(2).value).toBe('');
+  });
+
+  it('行ループの記号が解釈できない（旧記法の {{#each steps}} など）場合は GeneratorError をスローする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-old.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each steps}}';
+    tplWs.getRow(1).getCell(2).value = '{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
+
+    await expect(generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath)).rejects.toThrow(
+      GeneratorError,
+    );
   });
 
   it('リッチテキストのセルに含まれる変数も置換される', async () => {
@@ -159,9 +161,9 @@ describe('generateExcel', () => {
       ],
     };
     tplWs.getRow(2).getCell(1).value = {
-      richText: [{ font: { bold: true }, text: '{{#each steps}}' }],
+      richText: [{ font: { bold: true }, text: '{{#each ### steps}}' }],
     };
-    tplWs.getRow(2).getCell(2).value = { richText: [{ font: { bold: true }, text: '{{title}}' }] };
+    tplWs.getRow(2).getCell(2).value = { richText: [{ font: { bold: true }, text: '{{###}}' }] };
     await tplWb.xlsx.writeFile(templatePath);
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
@@ -191,8 +193,8 @@ describe('generateExcel', () => {
     const templatePath = path.join(tmpDir, 'custom-height.xlsx');
     const tplWb = new ExcelJS.Workbook();
     const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each steps}}';
-    tplWs.getRow(1).getCell(2).value = '{{title}}';
+    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}';
+    tplWs.getRow(1).getCell(2).value = '{{###}}';
     tplWs.getRow(1).height = 55;
     await tplWb.xlsx.writeFile(templatePath);
 
@@ -209,12 +211,14 @@ describe('generateExcel', () => {
     const imagePath = path.join(tmpDir, 'screen.png');
     await fs.promises.writeFile(imagePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
 
-    const docWithImage: ProcedureDocument = {
-      ...SAMPLE_DOC,
-      steps: [
-        { ...SAMPLE_DOC.steps[0], image: { src: './screen.png', alt: 'スクリーンショット' } },
-      ],
-    };
+    const docWithImage = parseMarkdown(`# ログイン手順
+
+## カテゴリA
+
+### 手順1
+
+> ![スクリーンショット](./screen.png)
+`);
 
     const outPath = await generateExcel(docWithImage, inputFile, outputDir);
     const wb = new ExcelJS.Workbook();

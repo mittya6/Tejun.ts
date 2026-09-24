@@ -2,9 +2,15 @@ import fs from 'fs';
 import path from 'path';
 import ExcelJS from 'exceljs';
 import { GeneratorError } from '../utils/errors';
-import { replaceCellVariables, replaceStepCellVariables } from '../template/templateEngine';
+import { expandLoopChains, extractRowLoop, replaceCellVariables } from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
-import type { ProcedureDocument, Step, TemplateContext } from '../parser/types';
+import type {
+  DocNode,
+  ImageRef,
+  NodeSymbol,
+  ProcedureDocument,
+  TemplateContext,
+} from '../parser/types';
 
 /** 未指定時に使用するデフォルトExcelテンプレートのパス */
 const DEFAULT_EXCEL_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'default.xlsx');
@@ -85,45 +91,39 @@ async function buildFromTemplate(
   }
 
   const ctx: TemplateContext = {
-    document: { title: doc.title },
+    title: doc.title,
     date: doc.date,
     update: doc.update,
-    steps: doc.steps,
-    h1Body: doc.h1Body,
-    h1Blockquote: doc.h1Blockquote,
-    firstHeadings: doc.firstHeadings,
     meta: doc.meta,
+    root: doc.root,
   };
 
-  // {{#each steps}}（{{#each h2 steps}} / {{#each h3 steps}}と同義）行を検出
+  // セルをまたぐ {{#each 記号 steps}} ... {{/each}} がある最初の行を、行ループの行として検出
   let templateRowNumber = -1;
+  let rowLoop: { symbols: NodeSymbol[]; cells: string[] } | undefined;
   templateWs.eachRow((row, rowNum) => {
-    row.eachCell((cell) => {
-      const text = cellText(cell.value);
-      if (
-        text !== undefined &&
-        (text.includes('{{#each steps}}') ||
-          text.includes('{{#each h2 steps}}') ||
-          text.includes('{{#each h3 steps}}'))
-      ) {
-        templateRowNumber = rowNum;
-      }
-    });
+    if (rowLoop) return;
+    const texts = [''];
+    for (let col = 1; col <= row.cellCount; col++) {
+      texts.push(cellText(row.getCell(col).value) ?? '');
+    }
+    rowLoop = extractRowLoop(texts);
+    if (rowLoop) templateRowNumber = rowNum;
   });
 
-  // ヘッダー変数置換（ステップ行はステップごとの値で別途置換するため対象外）
+  // ヘッダー変数置換（行ループの行は行ごとの値で別途置換するため対象外）
   templateWs.eachRow((row, rowNum) => {
     if (rowNum === templateRowNumber) return;
     row.eachCell((cell) => {
       const text = cellText(cell.value);
-      if (text === undefined || text.includes('{{#each')) return;
+      if (text === undefined) return;
       const replaced = replaceCellVariables(text, ctx);
       // 変数を含まないリッチテキストはセル内の書式を保つため書き換えない
       if (replaced !== text) cell.value = replaced;
     });
   });
 
-  if (templateRowNumber === -1) {
+  if (!rowLoop) {
     const newWs = workbook.addWorksheet(templateWs.name);
     copyWorksheet(templateWs, newWs);
     return;
@@ -132,9 +132,10 @@ async function buildFromTemplate(
   // テンプレート行のスタイルを保存
   const templateRow = templateWs.getRow(templateRowNumber);
   const templateCells: Array<{ value: string; style: Partial<ExcelJS.Style> }> = [];
+  const loopCells = rowLoop.cells;
   templateRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
     templateCells[colNum] = {
-      value: cellText(cell.value) ?? '',
+      value: loopCells[colNum] ?? '',
       style: {
         font: cell.font,
         fill: cell.fill,
@@ -144,28 +145,23 @@ async function buildFromTemplate(
     };
   });
 
-  // テンプレート行を削除してステップ分の行を挿入
+  // テンプレート行を削除して行ループの要素分の行を挿入
   templateWs.spliceRows(templateRowNumber, 1);
 
+  const chains = expandLoopChains([ctx.root], rowLoop.symbols);
+  const images = chains.map((chain) => rowImage(chain[chain.length - 1]));
   let insertAt = templateRowNumber;
-  // 大項目（H2）の連番。HTML側と同じく、連続する同一カテゴリを1グループとして数える
-  let h2Index = 0;
-  let prevCategory: string | undefined;
-  for (const step of doc.steps) {
-    if (step.category !== prevCategory) {
-      h2Index++;
-      prevCategory = step.category;
-    }
+  chains.forEach((chain, i) => {
     templateWs.spliceRows(insertAt, 0, []);
     const newRow = templateWs.getRow(insertAt);
     // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる
-    const rowHeight = step.image ? IMAGE_ROW_HEIGHT : templateRow.height;
+    const rowHeight = images[i] ? IMAGE_ROW_HEIGHT : templateRow.height;
     if (rowHeight !== undefined) newRow.height = rowHeight;
 
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      cell.value = replaceStepCellVariables(cellDef.value, step, h2Index, ctx);
+      cell.value = replaceCellVariables(cellDef.value, ctx, chain);
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
       if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;
@@ -174,22 +170,30 @@ async function buildFromTemplate(
 
     newRow.commit();
     insertAt++;
-  }
+  });
 
   const newWs = workbook.addWorksheet(templateWs.name);
   copyWorksheet(templateWs, newWs);
 
   // 画像埋め込み
-  for (const step of doc.steps) {
-    if (step.image && isLocalImagePath(step.image.src)) {
-      const imgData = await readImageAsBase64(step.image.src, basePath);
+  for (const [i, image] of images.entries()) {
+    if (image && isLocalImagePath(image.src)) {
+      const imgData = await readImageAsBase64(image.src, basePath);
       if (imgData) {
         const imageId = workbook.addImage({ base64: imgData.base64, extension: imgData.ext });
-        const r = templateRowNumber + step.index - 1;
+        const r = templateRowNumber + i;
         newWs.addImage(imageId, cellRange(3, r, 4, r + 1));
       }
     }
   }
+}
+
+/**
+ * 行の要素に貼り付ける画像を返す。要素が引用ならその画像、それ以外は直下の最初の引用の画像。
+ */
+function rowImage(node: DocNode): ImageRef | undefined {
+  const quote = node.symbol === '>' ? node : node.children.find((c) => c.symbol === '>');
+  return quote?.image;
 }
 
 /**
@@ -251,5 +255,3 @@ export async function generateExcel(
 
   return outPath;
 }
-
-export type { Step };

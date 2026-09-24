@@ -32,9 +32,8 @@ vi.mock('../generators/excelGenerator', () => ({
 const SAMPLE_DOC: ProcedureDocument = {
   title: 'サンプル手順書',
   date: '2026/06/24',
-  firstHeadings: {},
   meta: {},
-  steps: [],
+  root: { symbol: 'root', content: '', index: 1, children: [] },
 };
 
 describe('runGenerate', () => {

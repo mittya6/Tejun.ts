@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { parseMarkdown } from '../parser/markdownParser';
+import { findNodePaths } from '../parser/docTree';
 import { generateHtml } from '../generators/htmlGenerator';
 import { generateExcel } from '../generators/excelGenerator';
 import { ParseError, GeneratorError } from '../utils/errors';
@@ -41,7 +42,9 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
   const doc = parseMarkdown(content);
 
   console.log(`\n📄  ${doc.title}`);
-  console.log(`    ステップ数: ${doc.steps.length}  /  出力先: ${path.resolve(options.out)}\n`);
+  console.log(
+    `    ステップ数: ${findNodePaths(doc.root, '###').length}  /  出力先: ${path.resolve(options.out)}\n`,
+  );
 
   const outputDir = path.resolve(options.out);
 

@@ -1,10 +1,7 @@
 import { marked } from 'marked';
 import type { Token } from 'marked';
 import { ParseError } from '../utils/errors';
-import type { FirstHeadings, ImageRef, ProcedureDocument, Step } from './types';
-
-/** 画像参照にマッチする正規表現 */
-const IMAGE_LINE_RE = /^!\[/;
+import type { DocNode, HeadingSymbol, ImageRef, NodeSymbol, ProcedureDocument } from './types';
 
 /** 期待値ヘッダー行にマッチする正規表現（**期待値** または 期待値） */
 const EXPECTED_HEADER_RE = /^\*{0,2}期待値\*{0,2}\s*$/;
@@ -96,52 +93,84 @@ function findFirstImage(tokens: Token[]): ImageRef | undefined {
 }
 
 /**
- * blockquoteのrawテキストから期待値テキストと画像参照を抽出する
+ * blockquoteトークンから引用の内容のHTMLと最初の画像を取り出す
  *
- * ブロッククォートの生テキスト（`> ` プレフィックス付き）を受け取り、
- * - 「期待値」ヘッダー行を除去
- * - 画像行を除去（画像は別フィールドで管理）
- * - 残りをHTMLにレンダリング
+ * 先頭などにある「期待値」ヘッダー行は取り除く。画像は元の記述順のままHTMLに残す。
  */
 function processBlockquote(blockquoteToken: Extract<Token, { type: 'blockquote' }>): {
-  expectedHtml: string;
-  expectedInline: string | undefined;
+  html: string;
   image: ImageRef | undefined;
 } {
-  const image = findFirstImage(blockquoteToken.tokens);
-
-  // rawテキストから "> " プレフィックスを除去し、不要行を削除
-  const innerLines = blockquoteToken.raw
+  // rawテキストから "> " プレフィックスを除去し、期待値ヘッダー行を削除
+  const markdown = blockquoteToken.raw
     .split('\n')
     .map((line) => line.replace(/^>\s?/, ''))
-    .filter((line) => !EXPECTED_HEADER_RE.test(line.trim()));
+    .filter((line) => !EXPECTED_HEADER_RE.test(line.trim()))
+    .join('\n')
+    .trim();
 
-  const renderLines = (lines: string[]): string => {
-    const markdown = lines.join('\n').trim();
-    return markdown ? (marked.parse(markdown) as string) : '';
+  return {
+    html: markdown ? (marked.parse(markdown) as string) : '',
+    image: findFirstImage(blockquoteToken.tokens),
   };
+}
 
-  const expectedHtml = renderLines(innerLines.filter((line) => !IMAGE_LINE_RE.test(line.trim())));
-  // 画像行を残したまま描画し、元の記述順を保つ
-  const expectedInline = image ? renderLines(innerLines) : undefined;
+/**
+ * 子要素を作成して `parent` に追加する。連番は同じ親の中での同じ種類の要素の連番。
+ */
+function appendChild(parent: DocNode, symbol: NodeSymbol, content: string): DocNode {
+  const node: DocNode = {
+    symbol,
+    content,
+    index: parent.children.filter((child) => child.symbol === symbol).length + 1,
+    children: [],
+  };
+  parent.children.push(node);
+  return node;
+}
 
-  return { expectedHtml, expectedInline, image };
+/**
+ * 見出し以外のブロックトークンから、引用・リスト項目・コードブロックの要素を作って `parent` に追加する。
+ * 引用とリスト項目の中身も再帰的にたどる。
+ */
+function appendBlocks(parent: DocNode, tokens: Token[]): void {
+  for (const token of tokens) {
+    if (token.type === 'blockquote') {
+      const { html, image } = processBlockquote(token as Extract<Token, { type: 'blockquote' }>);
+      const node = appendChild(parent, '>', html);
+      if (image) node.image = image;
+      appendBlocks(node, token.tokens ?? []);
+    } else if (token.type === 'list') {
+      for (const item of token.items) {
+        const html = marked.parser(item.tokens);
+        appendBlocks(appendChild(parent, token.ordered ? '1.' : '-', html), item.tokens);
+      }
+    } else if (token.type === 'code') {
+      appendChild(parent, '```', marked.parser([token]));
+    }
+  }
+}
+
+/** 解析中の見出し（ルートを含む）の状態 */
+interface Section {
+  node: DocNode;
+  level: number;
+  /** 最初の引用より前の本文（Markdown） */
+  bodyParts: string[];
+  quoteFound: boolean;
 }
 
 /**
  * Markdown文字列を解析し、手順書ドキュメントとして構造化して返す
  *
  * 記述ルール:
- * - 先頭のFront Matter (`---`...`---`) → `title` / `date` / `update` メタ情報
- * - H1 (`#`) → ドキュメントタイトル（Front Matterに`title`があればそちらを優先）
- * - 最初のH2より前に書かれたテキスト・コード・リスト → 概要文（overview）
- *   - 概要文のうち最初のblockquoteより前 → `h1Body`、最初のblockquote → `h1Blockquote`（H3と同じ分け方）
- * - H2 (`##`) → 大項目（category）
- * - H3 (`###`) → 手順タイトル（title）
- * - H3直後のテキスト・コード・リスト → 操作手順本文（instruction）
- * - H3直後のblockquote (`>`) → 期待される結果（expected）
- * - 文書全体で最初に登場したH1〜H6それぞれのテキストを`firstHeadings`として収集する
- *   （each構文外の`{{h1}}`〜`{{h6}}`用。`title`/`category`/`title`と異なりFront Matterやループ文脈を考慮しない生の値）
+ * - 先頭のFront Matter (`---`...`---`) → `title` / `date` / `update` などのメタ情報
+ * - ツリーのルートは文書全体（記号 `root`）。最初の見出しより前の内容はルートの子・本文になる
+ * - H1〜H6 → 次に同じか上位の見出しが現れるまでの内容を子に持つ要素
+ * - 最初のH1 (`#`) → ドキュメントタイトル（Front Matterに`title`があればそちらを優先）
+ * - 見出し直下の最初のblockquoteより前のテキスト・コード・リスト → その見出しの本文（body）
+ * - blockquote (`>`)・リストの項目（`-` / `1.`）・コードブロック（```` ``` ````） → 見出しの子要素
+ * - 最初のH2以降の見出しより前に書かれた内容 → 概要文（overview）
  *
  * @param content Markdownファイルの文字列
  * @returns 構造化された手順書ドキュメント
@@ -151,113 +180,61 @@ export function parseMarkdown(content: string): ProcedureDocument {
   const { frontMatter, body } = parseFrontMatter(content);
   const tokens = marked.lexer(body);
 
-  let title = '';
-  let currentCategory = '';
-  const rawSteps: Array<Omit<Step, 'index'>> = [];
-
-  // 文書全体で最初に登場した各見出しレベル（H1〜H6）のテキスト
-  const firstHeadings: FirstHeadings = {};
-
-  // 最初のH2より前のテキストを収集する（概要文）
+  const root: DocNode = { symbol: 'root', content: '', index: 1, children: [] };
+  const rootSection: Section = { node: root, level: 0, bodyParts: [], quoteFound: false };
+  const sections: Section[] = [rootSection];
+  // 現在の見出しの入れ子（先頭はルート）
+  const stack: Section[] = [rootSection];
+  // 見出しレベルごとの文書全体での出現数（添字がレベル）
+  const headingCounts = [0, 0, 0, 0, 0, 0, 0];
+  let firstH1: string | undefined;
+  let enteredSections = false;
   const overviewParts: string[] = [];
-  let enteredSteps = false;
-  // 概要文をH3と同じルールで分割する（最初のblockquoteより前 → h1.body、最初のblockquote → h1.blockquote）
-  const h1BodyParts: string[] = [];
-  let h1Blockquote: string | undefined;
-
-  // 現在構築中のステップ状態
-  let stepTitle = '';
-  let instructionParts: string[] = [];
-  let expectedHtml = '';
-  let expectedInline: string | undefined;
-  let image: ImageRef | undefined;
-  let inStep = false;
-  let expectedFound = false;
-
-  /** 現在のステップを確定してrawStepsに追加する */
-  function finalizeStep(): void {
-    if (!inStep) return;
-    const instructionMarkdown = instructionParts.join('\n\n');
-    rawSteps.push({
-      category: currentCategory,
-      title: stepTitle,
-      instruction: instructionMarkdown ? (marked.parse(instructionMarkdown) as string) : '',
-      expected: expectedHtml,
-      expectedInline,
-      image,
-    });
-    stepTitle = '';
-    instructionParts = [];
-    expectedHtml = '';
-    expectedInline = undefined;
-    image = undefined;
-    inStep = false;
-    expectedFound = false;
-  }
 
   for (const token of tokens) {
     if (token.type === 'heading') {
-      const headingKey = `h${token.depth}` as keyof FirstHeadings;
-      if (firstHeadings[headingKey] === undefined) {
-        firstHeadings[headingKey] = token.text;
-      }
-
-      if (token.depth === 1) {
-        title = token.text;
-      } else if (token.depth === 2) {
-        finalizeStep();
-        currentCategory = token.text;
-        enteredSteps = true;
-      } else if (token.depth === 3) {
-        finalizeStep();
-        stepTitle = token.text;
-        inStep = true;
-        expectedFound = false;
-        enteredSteps = true;
-      }
+      if (token.depth === 1) firstH1 ??= token.text;
+      while (stack[stack.length - 1].level >= token.depth) stack.pop();
+      headingCounts[token.depth]++;
+      const node: DocNode = {
+        symbol: '#'.repeat(token.depth) as HeadingSymbol,
+        content: token.text,
+        index: headingCounts[token.depth],
+        children: [],
+      };
+      stack[stack.length - 1].node.children.push(node);
+      const section: Section = { node, level: token.depth, bodyParts: [], quoteFound: false };
+      sections.push(section);
+      stack.push(section);
+      if (token.depth >= 2) enteredSections = true;
       continue;
     }
 
-    if (!enteredSteps) {
-      if (token.type !== 'space') overviewParts.push(token.raw.trim());
-      if (token.type === 'blockquote' && h1Blockquote === undefined) {
-        const result = processBlockquote(token as Extract<Token, { type: 'blockquote' }>);
-        h1Blockquote = result.expectedInline ?? result.expectedHtml;
-      } else if (h1Blockquote === undefined && token.type !== 'space') {
-        h1BodyParts.push(token.raw.trim());
-      }
-      continue;
-    }
+    if (token.type === 'space') continue;
+    if (!enteredSections) overviewParts.push(token.raw.trim());
 
-    if (!inStep) continue;
-
-    if (token.type === 'blockquote' && !expectedFound) {
-      // 型ガードでblockquoteトークンとして処理
-      const bq = token as Extract<Token, { type: 'blockquote' }>;
-      const result = processBlockquote(bq);
-      expectedHtml = result.expectedHtml;
-      expectedInline = result.expectedInline;
-      image = result.image;
-      expectedFound = true;
-    } else if (!expectedFound && token.type !== 'space') {
-      // blockquoteが来る前のテキスト・コード・リストは手順本文として収集
-      instructionParts.push(token.raw.trim());
+    const section = stack[stack.length - 1];
+    if (token.type === 'blockquote') {
+      section.quoteFound = true;
+    } else if (!section.quoteFound) {
+      section.bodyParts.push(token.raw.trim());
     }
+    appendBlocks(section.node, [token]);
   }
 
-  finalizeStep();
+  for (const section of sections) {
+    const bodyMarkdown = section.bodyParts.join('\n\n');
+    section.node.body = bodyMarkdown ? (marked.parse(bodyMarkdown) as string) : '';
+  }
 
-  const resolvedTitle = frontMatter.title || title;
+  const resolvedTitle = frontMatter.title || firstH1;
   if (!resolvedTitle) {
     throw new ParseError(
       'MarkdownドキュメントにはFront Matterの`title`またはH1タイトル（# タイトル）が必要です。',
     );
   }
 
-  const steps: Step[] = rawSteps.map((s, i) => ({ ...s, index: i + 1 }));
-
-  const overviewMarkdown = overviewParts.join('\n\n').trim();
-  const h1BodyMarkdown = h1BodyParts.join('\n\n').trim();
+  const overviewMarkdown = overviewParts.join('\n\n');
 
   return {
     title: resolvedTitle,
@@ -270,10 +247,7 @@ export function parseMarkdown(content: string): ProcedureDocument {
       }),
     update: frontMatter.update,
     overview: overviewMarkdown ? (marked.parse(overviewMarkdown) as string) : undefined,
-    h1Body: h1BodyMarkdown ? (marked.parse(h1BodyMarkdown) as string) : undefined,
-    h1Blockquote: h1Blockquote || undefined,
-    firstHeadings,
     meta: frontMatter.raw,
-    steps,
+    root,
   };
 }

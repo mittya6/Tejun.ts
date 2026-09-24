@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${h1}</title>
+<title>{{meta.title}}</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -80,34 +80,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 <div class="page">
 
 <header class="doc-header">
-  <div class="doc-title">{{meta.title}} {{h1}}</div>
+  <div class="doc-title">{{meta.title}} {{#}}</div>
   <div class="doc-meta">作成日: {{meta.date}}</div>
   <div class="doc-meta">更新日: {{meta.update}}</div>
 </header>
 
 
 <section class="doc-overview">
-  <div class="step-content">{{h3}}</div>
+  <div class="step-content">{{#}}</div>
+  <p>{{#.body}}</p>
 </section>
 
 
-{{#each h2 steps}}
+{{#each ## steps}}
 <section class="category">
-  <h2 class="category-title">{{h2}}</h2>
-  {{#each h3 steps}}
+  <h2 class="category-title">{{##}}</h2>
+  {{#each ### steps}}
   <section class="step">
-    <div class="step-num">{{h2.index}}-{{h3.index}}</div>
+    <div class="step-num">{{##.index}}-{{###.index}}</div>
     <div class="step-head">
-      <div class="step-ttl">{{h3}}</div>
+      <div class="step-ttl">{{###}}</div>
     </div>
     <div class="step-body">
       <div class="step-block instruction">
         <div class="step-block-label">操作手順</div>
-        <div class="step-content">{{h3.body}}</div>
+        <div class="step-content">{{###.body}}</div>
       </div>
       <div class="step-block expected">
         <div class="step-block-label">期待される結果</div>
-        <div class="step-content">{{h3.blockquote}}</div>
+        <div class="step-content">{{###.>}}</div>
       </div>
     </div>
   </section>
