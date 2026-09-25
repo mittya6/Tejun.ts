@@ -330,6 +330,18 @@ describe('expandLoopChains', () => {
     ]);
   });
 
+  it('内側の記号の要素が無い外側の要素も1行として返す', () => {
+    const ctx = ctxFrom('# 表題\n\n## 大項目A\n\n本文A\n\n## 大項目B\n\n### 手順1\n');
+    const chains = expandLoopChains([ctx.root], ['##', '###']);
+    expect(chains.map((chain) => chain.slice(1).map((node) => node.content))).toEqual([
+      ['表題', '大項目A'],
+      ['表題', '大項目B', '手順1'],
+    ]);
+    expect(replaceCellVariables('{{##}}|{{##.body}}|{{###}}', ctx, chains[0])).toBe(
+      '大項目A|本文A|',
+    );
+  });
+
   it('記号が無ければ起点の経路だけを返す', () => {
     expect(expandLoopChains([SAMPLE_CTX.root], [])).toEqual([[SAMPLE_CTX.root]]);
   });

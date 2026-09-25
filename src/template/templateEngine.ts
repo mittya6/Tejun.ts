@@ -344,15 +344,19 @@ export function extractRowLoop(
 /**
  * 行ループの記号を外側から順にたどり、1行ごとにルートからその行の要素までの経路を返す
  *
+ * 内側の記号の要素を持たない外側の要素は、その要素までの経路を1行として返す
+ * （例: `###` の無い `##` も1行になる）。
+ *
  * @param chain 起点の経路（通常はルートのみ）
  * @param symbols 行ループの記号（外側から順）
  */
 export function expandLoopChains(chain: DocNode[], symbols: NodeSymbol[]): DocNode[][] {
   if (symbols.length === 0) return [chain];
   const [symbol, ...rest] = symbols;
-  return findNodePaths(chain[chain.length - 1], symbol).flatMap((path) =>
-    expandLoopChains([...chain, ...path], rest),
-  );
+  return findNodePaths(chain[chain.length - 1], symbol).flatMap((path) => {
+    const chains = expandLoopChains([...chain, ...path], rest);
+    return chains.length > 0 ? chains : [[...chain, ...path]];
+  });
 }
 
 /**
