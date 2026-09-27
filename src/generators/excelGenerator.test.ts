@@ -74,8 +74,8 @@ describe('generateExcel', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
-    expect(ws.getRow(1).getCell(1).value).toBe('ログイン手順');
-    // 既定テンプレートの列見出し（項番(H2)|項番(H3)|大項目|操作手順|期待される結果|チェック|実施日|実行者）
+    expect(ws.getRow(1).getCell(2).value).toBe('ログイン手順');
+    // 既定テンプレートの列見出し（B列から 項番|大項目|操作手順|期待される結果|チェック|実施日|実行者）
     const headerRow = ws.getRow(3);
     expect(headerRow.getCell(6).value).toBe('チェック');
     expect(headerRow.getCell(7).value).toBe('実施日');
@@ -98,7 +98,7 @@ describe('generateExcel', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
-    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '2-1', '3-2']);
+    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '1-2', '2-3']);
   });
 
   it('カスタムテンプレートの行ループの行を展開する', async () => {
@@ -249,9 +249,9 @@ describe('generateExcel', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
-    expect(ws.getCell('A1').isMerged).toBe(true);
     expect(ws.getCell('B1').isMerged).toBe(true);
-    expect(ws.getCell('A2').isMerged).toBe(true);
+    expect(ws.getCell('H1').isMerged).toBe(true);
+    expect(ws.getCell('B2').isMerged).toBe(true);
   });
 
   it('テンプレートファイルが存在しない場合は GeneratorError をスローする', async () => {
