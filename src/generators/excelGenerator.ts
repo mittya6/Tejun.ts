@@ -161,7 +161,7 @@ async function buildFromTemplate(
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      cell.value = replaceCellVariables(cellDef.value, ctx, chain);
+      cell.value = replaceCellVariables(cellDef.value, ctx, chain, chains[i - 1]);
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
       if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;

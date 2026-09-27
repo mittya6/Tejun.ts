@@ -25,13 +25,13 @@ const TAG_RE = /\{\{([^{}]*)\}\}/g;
 const EACH_TAG_RE = /\{\{#each\b([^{}]*)\}\}|\{\{\/each\}\}/g;
 
 /** 参照式の1区切り（記号またはプロパティ）と、その後ろの区切りの `.` にマッチする正規表現 */
-const PATH_SEGMENT_RE = /(#{1,6}|>|-|1\.|```|body|index)(\.|$)/y;
+const PATH_SEGMENT_RE = /(#{1,6}|>|-|1\.|```|body|index|first)(\.|$)/y;
 
 const EACH_MISMATCH_MESSAGE = 'テンプレートの {{#each}} / {{/each}} タグが正しく対応していません。';
 const IF_MISMATCH_MESSAGE = 'テンプレートの {{#if}} / {{/if}} タグが正しく対応していません。';
 
 /** 要素の見出しテキスト・内容以外に参照できるプロパティ */
-type Property = 'body' | 'index';
+type Property = 'body' | 'index' | 'first';
 
 /** テンプレート変数・`{{#if}}` の条件に書ける式 */
 type Expr =
@@ -68,7 +68,7 @@ function parsePath(source: string): Expr | undefined {
   while (PATH_SEGMENT_RE.lastIndex < source.length) {
     const match = PATH_SEGMENT_RE.exec(source);
     if (!match || property) return undefined;
-    if (match[1] === 'body' || match[1] === 'index') {
+    if (match[1] === 'body' || match[1] === 'index' || match[1] === 'first') {
       property = match[1];
     } else {
       symbols.push(match[1] as NodeSymbol);
@@ -184,8 +184,15 @@ function findInScope(chain: DocNode[], symbol: NodeSymbol): DocNode[] | undefine
 
 /**
  * 式を評価する。参照先の要素が無ければ空文字。
+ *
+ * @param prevChain 前の行の経路（Excelの行ループのみ。`first` の判定に使う）
  */
-function evaluate(expr: Expr, chain: DocNode[], ctx: TemplateContext): Value {
+function evaluate(
+  expr: Expr,
+  chain: DocNode[],
+  ctx: TemplateContext,
+  prevChain?: DocNode[],
+): Value {
   if (expr.kind === 'meta') {
     if (expr.key === 'title') return { text: ctx.title, isHtml: false };
     if (expr.key === 'date') return { text: ctx.date, isHtml: false };
@@ -201,6 +208,9 @@ function evaluate(expr: Expr, chain: DocNode[], ctx: TemplateContext): Value {
   const node = found[found.length - 1];
   if (expr.property === 'index') return { text: String(node.index), isHtml: false };
   if (expr.property === 'body') return { text: node.body ?? '', isHtml: true };
+  if (expr.property === 'first') {
+    return { text: prevChain?.includes(node) ? '' : '1', isHtml: false };
+  }
   return { text: node.content, isHtml: !node.symbol.startsWith('#') };
 }
 
@@ -208,12 +218,14 @@ function evaluate(expr: Expr, chain: DocNode[], ctx: TemplateContext): Value {
  * 解析済みテンプレートを展開する
  *
  * @param chain ルートからカレント要素までの経路（ループの外側ではルートのみ）
+ * @param prevChain 前の行の経路（Excelの行ループのみ）
  */
 function renderNodes(
   nodes: TemplateNode[],
   chain: DocNode[],
   ctx: TemplateContext,
   mode: OutputMode,
+  prevChain?: DocNode[],
 ): string {
   return nodes
     .map((node) => {
@@ -221,17 +233,17 @@ function renderNodes(
         case 'text':
           return node.text;
         case 'var': {
-          const value = evaluate(node.expr, chain, ctx);
+          const value = evaluate(node.expr, chain, ctx, prevChain);
           if (mode === 'html') return value.isHtml ? value.text : escapeHtml(value.text);
           return value.isHtml ? stripHtml(value.text) : value.text;
         }
         case 'if':
-          return evaluate(node.expr, chain, ctx).text.trim()
-            ? renderNodes(node.children, chain, ctx, mode)
+          return evaluate(node.expr, chain, ctx, prevChain).text.trim()
+            ? renderNodes(node.children, chain, ctx, mode, prevChain)
             : '';
         case 'each':
           return findNodePaths(chain[chain.length - 1], node.symbol)
-            .map((path) => renderNodes(node.children, [...chain, ...path], ctx, mode))
+            .map((path) => renderNodes(node.children, [...chain, ...path], ctx, mode, prevChain))
             .join('');
       }
     })
@@ -249,6 +261,8 @@ function renderNodes(
  * - `{{記号.記号}}` → 左の要素を起点に右の要素を探す（例: `{{###.>}}` は手順の最初の引用）
  * - `{{記号.body}}` → 見出し直下の最初の引用より前の本文のHTML（エスケープなし）
  * - `{{記号.index}}` → 1始まりの連番（見出しは文書全体を通した連番、それ以外は同じ親の中での連番）
+ * - `{{記号.first}}` → Excelの行ループで、要素が前の行と別の要素なら `1`、同じ要素なら空文字
+ *   （`{{#if ##.first}}...{{/if}}` のように使う）。行ループの外側・HTML出力では常に `1`
  * - `{{meta.プロパティ名}}` → Front Matterのプロパティ（`title` / `date` / `update` は解決済みの値）
  * - `{{#each 記号 steps}}...{{/each}}` → カレント要素の中のその記号の要素ごとに繰り返す（入れ子可）
  * - `{{#if 式}}...{{/if}}` → 式の値が空でない場合のみ展開（入れ子可）
@@ -279,14 +293,16 @@ export function renderTemplate(template: string, ctx: TemplateContext): string {
  * @param cellValue セルのテキスト値
  * @param ctx ドキュメント全体のコンテキスト
  * @param chain ルートからカレント要素までの経路（行ループの行では、その行の要素まで）
+ * @param prevChain 行ループの前の行の経路（`{{記号.first}}` の判定に使う。最初の行では省略）
  * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、またはセル内で閉じタグと対応しない場合
  */
 export function replaceCellVariables(
   cellValue: string,
   ctx: TemplateContext,
   chain: DocNode[] = [ctx.root],
+  prevChain?: DocNode[],
 ): string {
-  return renderNodes(parseTemplate(cellValue), chain, ctx, 'text');
+  return renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain);
 }
 
 /**

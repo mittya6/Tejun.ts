@@ -116,6 +116,23 @@ describe('generateExcel', () => {
     expect(ws.getRow(3).getCell(3).value).toBe('手順2');
   });
 
+  it('{{#if ##.first}} は同じ大項目の2行目以降を空にする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-first.xlsx');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('テンプレート');
+    ws.getRow(1).getCell(1).value = '{{#each ## steps}}';
+    ws.getRow(1).getCell(2).value = '{{#each ### steps}}{{#if ##.first}}{{##}}{{/if}}';
+    ws.getRow(1).getCell(3).value = '{{###}}{{/each}}{{/each}}';
+    await wb.xlsx.writeFile(templatePath);
+
+    const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
+    const out = new ExcelJS.Workbook();
+    await out.xlsx.readFile(outPath);
+    const outWs = out.worksheets[0];
+    expect([1, 2].map((r) => outWs.getRow(r).getCell(2).value)).toEqual(['カテゴリA', '']);
+    expect([1, 2].map((r) => outWs.getRow(r).getCell(3).value)).toEqual(['手順1', '手順2']);
+  });
+
   it('セル内で閉じた {{#each - steps}} はセル内で箇条書きの項目を繰り返す', async () => {
     const templatePath = path.join(tmpDir, 'custom-list.xlsx');
     const tplWb = new ExcelJS.Workbook();

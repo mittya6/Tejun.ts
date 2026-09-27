@@ -342,6 +342,20 @@ describe('expandLoopChains', () => {
     );
   });
 
+  it('{{記号.first}} は前の行と別の要素の行でだけ値が入る', () => {
+    const chains = expandLoopChains([SAMPLE_CTX.root], ['##', '###']);
+    const tpl = '{{#if ##.first}}{{##}}{{/if}}|{{###}}';
+    expect(
+      chains.map((chain, i) => replaceCellVariables(tpl, SAMPLE_CTX, chain, chains[i - 1])),
+    ).toEqual(['大項目A|手順1', '|手順2', '大項目B|手順3']);
+  });
+
+  it('前の行の経路が無ければ {{記号.first}} は常に 1 になる', () => {
+    expect(replaceCellVariables('{{##.first}}', SAMPLE_CTX)).toBe('1');
+    const tpl = '{{#each ### steps}}{{#if ##.first}}{{##}}{{/if}}{{/each}}';
+    expect(renderTemplate(tpl, SAMPLE_CTX)).toBe('大項目A大項目A大項目B');
+  });
+
   it('記号が無ければ起点の経路だけを返す', () => {
     expect(expandLoopChains([SAMPLE_CTX.root], [])).toEqual([[SAMPLE_CTX.root]]);
   });
