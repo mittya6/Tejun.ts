@@ -6,6 +6,7 @@
 <title>{{meta.title}}</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
 :root{
   --ink:#1a1a1a;--muted:#6b6b6b;--border:#ddd;
   --accent:#2952cc;--accent-bg:#eef1fb;
@@ -66,11 +67,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .step-img{max-width:100%;max-height:320px;object-fit:contain;
   border:1px solid var(--border);margin-top:var(--space-sm);display:block}
 
+/* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
+.category,.step{scroll-margin-top:var(--space-lg)}
+.toc{position:fixed;top:var(--space-xl);left:calc(50% + 410px + var(--space-lg));width:240px;
+  max-height:calc(100vh - 2 * var(--space-xl));overflow-y:auto;font-size:.82rem;line-height:1.5}
+.toc-label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:var(--space-sm)}
+.toc > ol{scroll-target-group:auto}
+.toc ol{list-style:none}
+.toc ol ol{margin:var(--space-xs) 0 var(--space-sm)}
+.toc a{display:block;padding:3px var(--space-sm);border-left:2px solid var(--border);
+  color:var(--muted);text-decoration:none}
+.toc > ol > li > a{font-weight:700;color:var(--ink)}
+.toc ol ol a{padding-left:var(--space-md)}
+.toc a:hover{color:var(--accent)}
+.toc a:target-current{border-left-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+@media (max-width:1200px){.toc{display:none}}
+
 /* ── Footer ──────────────────────────────── */
 .doc-footer{text-align:center;padding-top:var(--space-md);margin-top:var(--space-sm);
   border-top:1px solid var(--border);font-size:.75rem;color:#999}
 
 @media print{
+  .toc{display:none}
   .page{max-width:none;padding:0}
   body{font-size:12px}
 }
@@ -93,10 +112,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 
 {{#each ## steps}}
-<section class="category">
-  <h2 class="category-title">{{##}}</h2>
+<section class="category" id="sec-{{##.index}}">
+  <h2 class="category-title">{{##.index}}. {{##}}</h2>
+  {{##.body}}
   {{#each ### steps}}
-  <section class="step">
+  <section class="step" id="step-{{###.index}}">
     <div class="step-num">{{##.index}}-{{###.index}}</div>
     <div class="step-head">
       <div class="step-ttl">{{###}}</div>
@@ -123,5 +143,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 </footer>
 
 </div>
+
+<nav class="toc" aria-label="目次">
+  <div class="toc-label">目次</div>
+  <ol>
+    {{#each ## steps}}
+    <li>
+      <a href="#sec-{{##.index}}">{{##.index}}. {{##}}</a>
+      {{#if ###}}
+      <ol>
+        {{#each ### steps}}
+        <li><a href="#step-{{###.index}}">{{##.index}}-{{###.index}} {{###}}</a></li>
+        {{/each}}
+      </ol>
+      {{/if}}
+    </li>
+    {{/each}}
+  </ol>
+</nav>
 </body>
 </html>
