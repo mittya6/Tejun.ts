@@ -56,12 +56,26 @@ describe('generateHtml', () => {
   });
 
   it('デフォルトテンプレートでHTMLファイルを生成する', async () => {
-    const outPath = await generateHtml(SAMPLE_DOC, inputFile, outputDir);
+    const doc = parseMarkdown(`---
+title: "ログイン手順"
+---
+前文です。
+
+# カテゴリA
+
+## 手順1
+
+操作内容
+
+> 期待結果
+`);
+    const outPath = await generateHtml(doc, inputFile, outputDir);
     expect(fs.existsSync(outPath)).toBe(true);
     expect(path.basename(outPath)).toBe('input.html');
 
     const html = await fs.promises.readFile(outPath, 'utf-8');
     expect(html).toContain('ログイン手順');
+    expect(html).toContain('前文です。');
     expect(html).toContain('カテゴリA');
     expect(html).toContain('操作内容');
     expect(html).toContain('期待結果');

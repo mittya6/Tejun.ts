@@ -56,8 +56,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 .step-content p{margin-bottom:.6em}
 .step-content p:last-child{margin-bottom:0}
-.step-content ul,.step-content ol{padding-left:18px;margin-bottom:.6em}
-.step-content li{margin-bottom:.2em}
+/* リストの記号・番号の左端を本文の左端に揃える（記号の幅だけ字下げする） */
+.page ul,.page ol{margin-bottom:.6em}
+.page ul{padding-left:1.1em}
+.page ol{padding-left:1.4em}
+.page li{margin-bottom:.2em}
 .step-content code{background:#eee;padding:1px 5px;border-radius:3px;
   font-size:.85em;font-family:'Courier New',monospace}
 .step-content pre{background:#eee;padding:10px 12px;border-radius:5px;
@@ -104,32 +107,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   <div class="doc-meta">更新日: {{meta.update}}</div>
 </header>
 
-
+{{#if root.body}}
 <section class="doc-overview">
-  <div class="step-content">{{#}}</div>
-  <p>{{#.body}}</p>
+  <p>{{root.body}}</p>
 </section>
+{{/if}}
 
 
-{{#each ## steps}}
-<section class="category" id="sec-{{##.index}}">
-  <h2 class="category-title">{{##.index}}. {{##}}</h2>
-  {{##.body}}
-  {{#each ### steps}}
-  <section class="step" id="step-{{###.index}}">
-    <div class="step-num">{{##.index}}-{{###.index}}</div>
+{{#each # steps}}
+<section class="category" id="sec-{{#.index}}">
+  <h2 class="category-title">{{#.index}}. {{#}}</h2>
+  {{#.body}}
+  {{#each ## steps}}
+  <section class="step" id="step-{{##.index}}">
+    <div class="step-num">{{#.index}}-{{##.index}}</div>
     <div class="step-head">
-      <div class="step-ttl">{{###}}</div>
+      <div class="step-ttl">{{##}}</div>
     </div>
     <div class="step-body">
       <div class="step-block instruction">
         <div class="step-block-label">操作手順</div>
-        <div class="step-content">{{###.body}}</div>
+        <div class="step-content">{{##.body}}</div>
       </div>
-      {{#if ###.>}}
+      {{#if ##.>}}
       <div class="step-block expected">
         <div class="step-block-label">期待される結果</div>
-        <div class="step-content">{{###.>}}</div>
+        <div class="step-content">{{##.>}}</div>
       </div>
       {{/if}}
     </div>
@@ -147,13 +150,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 <nav class="toc" aria-label="目次">
   <div class="toc-label">目次</div>
   <ol>
-    {{#each ## steps}}
+    {{#each # steps}}
     <li>
-      <a href="#sec-{{##.index}}">{{##.index}}. {{##}}</a>
-      {{#if ###}}
+      <a href="#sec-{{#.index}}">{{#.index}}. {{#}}</a>
+      {{#if ##}}
       <ol>
-        {{#each ### steps}}
-        <li><a href="#step-{{###.index}}">{{##.index}}-{{###.index}} {{###}}</a></li>
+        {{#each ## steps}}
+        <li><a href="#step-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
         {{/each}}
       </ol>
       {{/if}}
