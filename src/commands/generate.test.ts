@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
-import { runGenerate, resolveOutputBaseName } from './generate';
+import path from 'path';
+import { runGenerate, resolveOutputBaseName, isPresetName, resolveTemplatePaths } from './generate';
 import { parseMarkdown } from '../parser/markdownParser';
 import { generateHtml } from '../generators/htmlGenerator';
 import { generateExcel } from '../generators/excelGenerator';
@@ -28,6 +29,8 @@ vi.mock('../generators/htmlGenerator', () => ({
 vi.mock('../generators/excelGenerator', () => ({
   generateExcel: vi.fn(),
 }));
+
+const PRESET_DIR = path.join(__dirname, '..', '..', 'templates');
 
 const SAMPLE_DOC: ProcedureDocument = {
   title: 'サンプル手順書',
@@ -64,6 +67,15 @@ describe('runGenerate', () => {
       await expect(
         runGenerate('input.md', { format: 'both', out: '.', template: 'template.docx' }),
       ).rejects.toThrow(GeneratorError);
+    });
+
+    it('出力する形式のプリセットファイルがない場合は GeneratorError をスローし何も生成しない', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((p) => !String(p).endsWith('nothing.xlsx'));
+      await expect(
+        runGenerate('input.md', { format: 'both', out: '.', template: 'nothing' }),
+      ).rejects.toThrow(GeneratorError);
+      expect(generateHtml).not.toHaveBeenCalled();
+      expect(generateExcel).not.toHaveBeenCalled();
     });
 
     it('--name のプロパティがFront Matterにない場合は ParseError をスローし何も生成しない', async () => {
@@ -133,6 +145,16 @@ describe('runGenerate', () => {
       expect(vi.mocked(generateHtml).mock.calls[0][4]).toBeUndefined();
     });
 
+    it('プリセット名指定時、両方の生成にプリセットのテンプレートパスが渡される', async () => {
+      await runGenerate('input.md', { format: 'both', out: '.', template: 'simple' });
+      expect(vi.mocked(generateHtml).mock.calls[0][3]).toBe(
+        path.join(PRESET_DIR, 'simple.html'),
+      );
+      expect(vi.mocked(generateExcel).mock.calls[0][3]).toBe(
+        path.join(PRESET_DIR, 'simple.xlsx'),
+      );
+    });
+
     it('.xlsxテンプレート指定時、generateExcelにテンプレートパスが渡される', async () => {
       await runGenerate('input.md', {
         format: 'excel',
@@ -171,4 +193,42 @@ describe('resolveOutputBaseName', () => {
       expect(() => resolveOutputBaseName({ filename: value }, 'meta.filename')).toThrow(ParseError);
     },
   );
+});
+
+describe('isPresetName', () => {
+  it('拡張子もパス区切りもない値はプリセット名とみなす', () => {
+    expect(isPresetName('simple')).toBe(true);
+  });
+
+  it('拡張子またはパス区切りを含む値はファイルパスとみなす', () => {
+    expect(isPresetName('simple.html')).toBe(false);
+    expect(isPresetName('./simple')).toBe(false);
+    expect(isPresetName('dir\\simple')).toBe(false);
+  });
+});
+
+describe('resolveTemplatePaths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+  });
+
+  it('未指定の場合は両形式とも既定テンプレートを使う', () => {
+    expect(resolveTemplatePaths(undefined, true, true)).toEqual({});
+  });
+
+  it('プリセット名の場合、出力しない形式のファイルは確認しない', () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => !String(p).endsWith('.xlsx'));
+    expect(resolveTemplatePaths('simple', true, false)).toEqual({
+      html: path.join(PRESET_DIR, 'simple.html'),
+      excel: undefined,
+    });
+  });
+
+  it('ファイルパスの場合は拡張子が合う形式にだけ使う', () => {
+    expect(resolveTemplatePaths('my.xlsx', true, true)).toEqual({
+      html: undefined,
+      excel: 'my.xlsx',
+    });
+  });
 });

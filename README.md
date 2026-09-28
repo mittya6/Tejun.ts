@@ -69,6 +69,9 @@ filename: サーバー構築手順_v1
 # HTMLとExcelの両方を ./output に出力する
 tejun ./procedure.md -o ./output
 
+# プリセット「simple」のテンプレート（templates/simple.html・templates/simple.xlsx）で出力する
+tejun ./procedure.md -t simple
+
 # 自作のExcelテンプレートを使ってExcelだけ出力する
 tejun ./procedure.md -f excel -t ./my-template.xlsx -o ./output
 
@@ -82,6 +85,8 @@ tejun "docs/**/*.md" -o ./output
 bashなどでワイルドカードをクォートせずに書いた場合は、シェルが展開したファイル一覧がそのまま渡されます。どちらの書き方でも結果は同じです。
 
 `-f both` で `-t` を指定した場合、テンプレートは拡張子が合う形式にだけ使われ、もう一方の形式は既定のテンプレートで出力されます。
+
+`-t` の値に拡張子もパス区切り（`/` `\`）もない場合は、プリセット名として扱います。プリセットはツールの `templates/` フォルダにある `<名前>.html` / `<名前>.xlsx` で、HTML・Excelの両方にそれぞれのファイルが使われます。出力する形式のファイルがプリセットにない場合はエラーになります。
 
 ## 手順書の書き方
 

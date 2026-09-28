@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{meta.title}}</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--ink:#1a1a1a;--muted:#6b6b6b;--border:#bbb;--accent:#2952cc;--ok:#1a7a4c;--head-bg:#f3f4f6}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:#ffffff;color:var(--ink);line-height:1.6;font-size:14px}
+.page{max-width:960px;margin:0 auto;padding:40px 24px}
+
+.doc-header{border-bottom:3px solid var(--ink);padding-bottom:12px;margin-bottom:24px}
+.doc-title{font-size:1.7rem;font-weight:800;line-height:1.35}
+.doc-meta{font-size:.8rem;color:var(--muted)}
+.doc-overview{margin-bottom:32px}
+
+.category{margin-bottom:40px}
+.category-title{font-size:1.2rem;font-weight:800;border-bottom:2px solid var(--ink);
+  padding-bottom:4px;margin-bottom:16px}
+
+/* 1手順＝1つの表。上段に操作と期待される結果、下段に記入欄 */
+.case{width:100%;border-collapse:collapse;margin-bottom:20px;table-layout:fixed;
+  page-break-inside:avoid;break-inside:avoid}
+.case th,.case td{border:1px solid var(--border);padding:6px 10px;vertical-align:top;text-align:left}
+.case th{background:var(--head-bg);font-size:.8rem;font-weight:700;white-space:nowrap}
+.case-ttl th{background:var(--ink);color:#fff;font-size:.95rem}
+.case .num{width:70px}
+.case .expected-cell{border-left:3px solid var(--ok)}
+.case .result{height:64px}
+.case .judge{white-space:nowrap}
+.box{display:inline-block;width:14px;height:14px;border:1px solid var(--ink);
+  vertical-align:-2px;margin:0 4px 0 12px}
+.box:first-child{margin-left:0}
+
+.content p{margin-bottom:.5em}
+.content p:last-child{margin-bottom:0}
+.content ul,.content ol{padding-left:18px;margin-bottom:.5em}
+.content code{background:#eee;padding:1px 5px;border-radius:3px;font-size:.85em;font-family:'Courier New',monospace}
+.content pre{background:#eee;padding:8px 10px;border-radius:5px;overflow-x:auto;font-size:.85em;margin-bottom:.5em;white-space:pre-wrap}
+.content pre code{background:transparent;padding:0}
+.content img{max-width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);display:block;margin-top:6px}
+
+@media print{
+  .page{max-width:none;padding:0}
+  body{font-size:11px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc-header">
+  <div class="doc-title">{{meta.title}}</div>
+  <div class="doc-meta">作成日: {{meta.date}}{{#if meta.update}} ／ 更新日: {{meta.update}}{{/if}}</div>
+</header>
+
+<section class="doc-overview content">{{#.body}}</section>
+
+{{#each ## steps}}
+<section class="category">
+  <h2 class="category-title">{{##.index}}. {{##}}</h2>
+  <div class="content">{{##.body}}</div>
+  {{#each ### steps}}
+  <table class="case">
+    <colgroup><col class="num"><col><col><col style="width:130px"><col style="width:130px"></colgroup>
+    <tr class="case-ttl"><th>{{##.index}}-{{###.index}}</th><th colspan="4">{{###}}</th></tr>
+    <tr><th>操作手順</th><td colspan="4" class="content">{{###.body}}</td></tr>
+    <tr><th>期待結果</th><td colspan="4" class="content expected-cell">{{###.>}}</td></tr>
+    <tr><th>実施結果</th><td colspan="4" class="result"></td></tr>
+    <tr><th>判定</th><td class="judge"><span class="box"></span>OK<span class="box"></span>NG</td>
+      <td>実施日: </td><td colspan="2">実施者: </td></tr>
+    <tr><th>備考</th><td colspan="4"></td></tr>
+  </table>
+  {{/each}}
+</section>
+{{/each}}
+
+</div>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{meta.title}}</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--ink:#1a1a1a;--muted:#6b6b6b;--border:#ddd;--ok:#1a7a4c}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:#ffffff;color:var(--ink);line-height:1.7;font-size:15px}
+.page{max-width:760px;margin:0 auto;padding:40px 24px}
+
+.doc-header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:32px}
+.doc-title{font-size:1.7rem;font-weight:800;line-height:1.35}
+.doc-meta{font-size:.8rem;color:var(--muted)}
+.doc-overview{margin-bottom:32px}
+
+.category{margin-bottom:40px}
+.category-title{font-size:1.25rem;font-weight:800;margin-bottom:16px}
+.step{margin-bottom:24px;page-break-inside:avoid;break-inside:avoid}
+.step-ttl{font-size:1.05rem;font-weight:700;margin-bottom:6px}
+.step-num{color:var(--muted);margin-right:8px}
+.expected{margin-top:8px;padding-left:12px;border-left:3px solid var(--ok)}
+.expected-label{font-size:.75rem;font-weight:700;color:var(--ok)}
+
+.content p{margin-bottom:.6em}
+.content p:last-child{margin-bottom:0}
+.content ul,.content ol{padding-left:18px;margin-bottom:.6em}
+.content code{background:#eee;padding:1px 5px;border-radius:3px;font-size:.85em;font-family:'Courier New',monospace}
+.content pre{background:#eee;padding:10px 12px;border-radius:5px;overflow-x:auto;font-size:.85em;margin-bottom:.6em}
+.content pre code{background:transparent;padding:0}
+.content img{max-width:100%;max-height:320px;object-fit:contain;border:1px solid var(--border);display:block;margin-top:8px}
+
+@media print{
+  .page{max-width:none;padding:0}
+  body{font-size:12px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc-header">
+  <div class="doc-title">{{meta.title}}</div>
+  <div class="doc-meta">作成日: {{meta.date}}{{#if meta.update}} ／ 更新日: {{meta.update}}{{/if}}</div>
+</header>
+
+<section class="doc-overview content">{{#.body}}</section>
+
+{{#each ## steps}}
+<section class="category">
+  <h2 class="category-title">{{##.index}}. {{##}}</h2>
+  <div class="content">{{##.body}}</div>
+  {{#each ### steps}}
+  <section class="step">
+    <div class="step-ttl"><span class="step-num">{{##.index}}-{{###.index}}</span>{{###}}</div>
+    <div class="content">{{###.body}}</div>
+    {{#if ###.>}}
+    <div class="expected">
+      <div class="expected-label">期待される結果</div>
+      <div class="content">{{###.>}}</div>
+    </div>
+    {{/if}}
+  </section>
+  {{/each}}
+</section>
+{{/each}}
+
+</div>
+</body>
+</html>

@@ -46,6 +46,89 @@ export function resolveOutputBaseName(meta: Record<string, string>, nameProperty
   return value;
 }
 
+/** プリセットテンプレートを置くディレクトリ */
+const PRESET_TEMPLATE_DIR = path.join(__dirname, '..', '..', 'templates');
+
+/** パス区切り文字 */
+const PATH_SEPARATOR = /[/\\]/;
+
+/** 出力形式ごとに使うテンプレートファイルのパス（未定義なら既定テンプレート） */
+export interface TemplatePaths {
+  html?: string;
+  excel?: string;
+}
+
+/**
+ * `--template` の値がプリセット名（拡張子もパス区切りもない値）かどうかを判定する
+ *
+ * @param template `--template` に指定された値
+ * @returns プリセット名なら true
+ */
+export function isPresetName(template: string): boolean {
+  return path.extname(template) === '' && !PATH_SEPARATOR.test(template);
+}
+
+/**
+ * プリセット名から、指定した拡張子のテンプレートファイルのパスを求める
+ *
+ * @param name プリセット名（例: `simple`）
+ * @param ext テンプレートの拡張子（`.html` または `.xlsx`）
+ * @returns テンプレートファイルのパス
+ * @throws GeneratorError プリセットのテンプレートファイルが存在しない場合
+ */
+function resolvePresetPath(name: string, ext: '.html' | '.xlsx'): string {
+  const presetPath = path.join(PRESET_TEMPLATE_DIR, `${name}${ext}`);
+  if (!fs.existsSync(presetPath)) {
+    throw new GeneratorError(
+      `プリセット「${name}」の${ext}テンプレートが見つかりません: ${presetPath}`,
+    );
+  }
+  return presetPath;
+}
+
+/**
+ * `--template` の値から、出力形式ごとに使うテンプレートファイルのパスを決定する
+ *
+ * プリセット名なら `templates/<名前>.html` / `templates/<名前>.xlsx` を使う。
+ * ファイルパスなら、拡張子が合う形式にだけそのファイルを使う。
+ *
+ * @param template `--template` に指定された値
+ * @param shouldHtml HTMLを出力するか
+ * @param shouldExcel Excelを出力するか
+ * @returns 出力形式ごとのテンプレートファイルのパス
+ * @throws GeneratorError プリセットが見つからない、または両形式出力時に拡張子が無効な場合
+ */
+export function resolveTemplatePaths(
+  template: string | undefined,
+  shouldHtml: boolean,
+  shouldExcel: boolean,
+): TemplatePaths {
+  if (!template) return {};
+
+  if (isPresetName(template)) {
+    return {
+      html: shouldHtml ? resolvePresetPath(template, '.html') : undefined,
+      excel: shouldExcel ? resolvePresetPath(template, '.xlsx') : undefined,
+    };
+  }
+
+  const templateExt = path.extname(template).toLowerCase();
+  const isHtmlTemplate = templateExt === '.html' || templateExt === '.htm';
+  const isExcelTemplate = templateExt === '.xlsx';
+
+  // テンプレートと出力形式の整合性チェック
+  if (shouldHtml && shouldExcel && !isHtmlTemplate && !isExcelTemplate) {
+    throw new GeneratorError(
+      `テンプレートファイルの拡張子が無効です: ${template}\n.html または .xlsx を指定してください。`,
+    );
+  }
+
+  return {
+    html: isHtmlTemplate ? template : undefined,
+    excel: isExcelTemplate ? template : undefined,
+  };
+}
+
 /**
  * generate コマンドの実行本体
  *
@@ -82,47 +165,33 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
 
   const outputDir = path.resolve(options.out);
 
-  // テンプレートの形式チェック
-  const templateExt = options.template ? path.extname(options.template).toLowerCase() : '';
-
   const shouldHtml = options.format === 'html' || options.format === 'both';
   const shouldExcel = options.format === 'excel' || options.format === 'both';
 
-  if (options.template) {
-    // テンプレートと出力形式の整合性チェック
-    if (shouldHtml && shouldExcel && templateExt !== '') {
-      const isHtmlTemplate = templateExt === '.html' || templateExt === '.htm';
-      const isExcelTemplate = templateExt === '.xlsx';
-      if (!isHtmlTemplate && !isExcelTemplate) {
-        throw new GeneratorError(
-          `テンプレートファイルの拡張子が無効です: ${options.template}\n.html または .xlsx を指定してください。`,
-        );
-      }
-    }
-  }
+  const templates = resolveTemplatePaths(options.template, shouldHtml, shouldExcel);
 
   const results: string[] = [];
 
   // HTML生成
   if (shouldHtml) {
-    const htmlTemplate =
-      options.template && (templateExt === '.html' || templateExt === '.htm')
-        ? options.template
-        : undefined;
-    const outPath = await generateHtml(doc, resolvedInput, outputDir, htmlTemplate, outputBaseName);
+    const outPath = await generateHtml(
+      doc,
+      resolvedInput,
+      outputDir,
+      templates.html,
+      outputBaseName,
+    );
     console.log(`  ✅  HTML: ${outPath}`);
     results.push(outPath);
   }
 
   // Excel生成
   if (shouldExcel) {
-    const excelTemplate =
-      options.template && templateExt === '.xlsx' ? options.template : undefined;
     const outPath = await generateExcel(
       doc,
       resolvedInput,
       outputDir,
-      excelTemplate,
+      templates.excel,
       outputBaseName,
     );
     console.log(`  ✅  Excel: ${outPath}`);

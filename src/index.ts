@@ -41,7 +41,10 @@ program
     'both',
   )
   .option('-o, --out <directory>', '出力先ディレクトリ', '.')
-  .option('-t, --template <file>', 'カスタムテンプレートファイル（.html または .xlsx）')
+  .option(
+    '-t, --template <file|name>',
+    'テンプレートファイル（.html または .xlsx）、またはプリセット名（例: simple）',
+  )
   .option(
     '-n, --name <property>',
     '出力ファイル名に使うFront Matterのプロパティ（例: meta.filename）',
