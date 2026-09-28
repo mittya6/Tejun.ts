@@ -36,6 +36,7 @@ type Property = 'body' | 'index' | 'first';
 /** テンプレート変数・`{{#if}}` の条件に書ける式 */
 type Expr =
   | { kind: 'meta'; key: string }
+  | { kind: 'rootBody' }
   | { kind: 'path'; symbols: NodeSymbol[]; property?: Property };
 
 /** 解析済みテンプレートの要素 */
@@ -80,13 +81,14 @@ function parsePath(source: string): Expr | undefined {
 }
 
 /**
- * テンプレート変数・条件の式を解析する（`meta.キー名` または記号の参照式）
+ * テンプレート変数・条件の式を解析する（`meta.キー名`・`root.body` または記号の参照式）
  *
  * @returns 式として解釈できなければ `undefined`
  */
 function parseExpr(source: string): Expr | undefined {
   const meta = /^meta\.([A-Za-z0-9_-]+)$/.exec(source);
   if (meta) return { kind: 'meta', key: meta[1] };
+  if (source === 'root.body') return { kind: 'rootBody' };
   return parsePath(source);
 }
 
@@ -199,6 +201,7 @@ function evaluate(
     if (expr.key === 'update') return { text: ctx.update ?? '', isHtml: false };
     return { text: ctx.meta[expr.key] ?? '', isHtml: false };
   }
+  if (expr.kind === 'rootBody') return { text: ctx.root.body ?? '', isHtml: true };
 
   let found: DocNode[] | undefined = chain;
   for (const symbol of expr.symbols) {
@@ -260,6 +263,7 @@ function renderNodes(
  *   Markdownで最初に出現するその記号の要素になる
  * - `{{記号.記号}}` → 左の要素を起点に右の要素を探す（例: `{{###.>}}` は手順の最初の引用）
  * - `{{記号.body}}` → 見出し直下の最初の引用より前の本文のHTML（エスケープなし）
+ * - `{{root.body}}` → 最初の見出しより前（かつ最初の引用より前）の本文のHTML（エスケープなし）
  * - `{{記号.index}}` → 1始まりの連番（見出しは文書全体を通した連番、それ以外は同じ親の中での連番）
  * - `{{記号.first}}` → Excelの行ループで、要素が前の行と別の要素なら `1`、同じ要素なら空文字
  *   （`{{#if ##.first}}...{{/if}}` のように使う）。行ループの外側・HTML出力では常に `1`

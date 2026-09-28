@@ -87,6 +87,16 @@ describe('renderTemplate', () => {
       expect(renderTemplate('${overview}', ctx)).toContain('概要の補足です。');
     });
 
+    it('{{root.body}} は最初の見出しより前の本文のHTMLになる（ループの内側でも同じ）', () => {
+      const ctx = ctxFrom('---\ntitle: "t"\n---\n前文です。\n\n# 見出し\n\n見出しの本文\n');
+      expect(renderTemplate('{{root.body}}', ctx)).toBe('<p>前文です。</p>\n');
+      expect(renderTemplate('{{#each # steps}}{{root.body}}{{/each}}', ctx)).toBe(
+        '<p>前文です。</p>\n',
+      );
+      expect(renderTemplate('{{#if root.body}}あり{{/if}}', ctx)).toBe('あり');
+      expect(renderTemplate('{{#if root.body}}あり{{/if}}', SAMPLE_CTX)).toBe('');
+    });
+
     it('プレーンテキストの値はHTMLエスケープする', () => {
       const ctx = { ...SAMPLE_CTX, title: '<Script>alert(1)</Script>' };
       expect(renderTemplate('{{meta.title}}', ctx)).toBe('&lt;Script&gt;alert(1)&lt;/Script&gt;');
@@ -262,6 +272,9 @@ describe('renderTemplate', () => {
 describe('replaceCellVariables', () => {
   it('HTMLのタグを除去したプレーンテキストで置換する（エスケープなし）', () => {
     expect(replaceCellVariables('{{#.body}}', SAMPLE_CTX)).toBe('概要の本文です。');
+    expect(replaceCellVariables('{{root.body}}', ctxFrom('---\ntitle: "t"\n---\n前文\n'))).toBe(
+      '前文',
+    );
     const ctx = ctxFrom('# a<b>\n');
     expect(replaceCellVariables('{{#}}', ctx)).toBe('a<b>');
   });
