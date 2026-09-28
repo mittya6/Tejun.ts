@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共有フォルダをネットワークドライブに割り当てる手順</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+:root{
+  --ink:#1a1a1a;--muted:#6b6b6b;--border:#ddd;
+  --accent:#2952cc;--accent-bg:#eef1fb;
+  --ok:#1a7a4c;--ok-bg:#eaf6ef;
+  --space-xs:4px;--space-sm:8px;--space-md:16px;--space-lg:32px;--space-xl:48px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:#ffffff;color:var(--ink);line-height:1.7;font-size:15px}
+.page{max-width:820px;margin:0 auto;padding:var(--space-xl) 24px}
+
+/* ── Header（対比: タイトルを大きく強く、メタ情報は小さく控えめに） ── */
+.doc-header{border-bottom:3px solid var(--ink);padding-bottom:var(--space-md);margin-bottom:var(--space-xl)}
+.doc-title{font-size:2rem;font-weight:800;line-height:1.35;letter-spacing:-.01em;margin-bottom:var(--space-sm)}
+.doc-meta{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+
+.doc-overview{margin-bottom:var(--space-xl)}
+
+/* ── 大項目（H2ごとにグループ化。見出しは1回だけ表示） ── */
+.category{margin-bottom:var(--space-xl)}
+.category img{max-width:100%;height:auto}
+.category-title{font-size:1.3rem;font-weight:800;border-bottom:2px solid var(--ink);
+  padding-bottom:var(--space-xs);margin-bottom:var(--space-lg)}
+.category-body{margin-bottom:var(--space-lg)}
+
+/* ── Step（整列: 番号カラムを固定し、見出し・本文の左端を揃える） ── */
+.step{display:grid;grid-template-columns:44px 1fr;column-gap:var(--space-md);
+  padding-bottom:var(--space-lg);margin-bottom:var(--space-lg);border-bottom:1px solid var(--border);
+  page-break-inside:avoid;break-inside:avoid}
+.step:last-child{border-bottom:none;margin-bottom:0}
+
+.step-num{grid-column:1;grid-row:1;width:44px;height:44px;border:2px solid var(--accent);
+  border-radius:6px;color:var(--accent);font-size:1.1rem;font-weight:800;
+  display:flex;align-items:center;justify-content:center}
+
+.step-head{grid-column:2;grid-row:1}
+.step-ttl{font-size:1.15rem;font-weight:700}
+
+/* 近接: ヘッダーと本文の間は広め、各ブロック内のラベルと内容は密着させる */
+.step-body{grid-column:1/-1;grid-row:2;margin-top:var(--space-md);margin-left:10px}
+.step-block{padding-left:var(--space-md);border-left:3px solid var(--border);
+  margin-bottom:var(--space-md)}
+.step-block:last-child{margin-bottom:0}
+.step-block.instruction{border-left-color:var(--accent)}
+.step-block.expected{border-left-color:var(--ok)}
+.step-block-label{font-size:.72rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:var(--space-xs)}
+.step-block.instruction .step-block-label{color:var(--accent)}
+.step-block.expected .step-block-label{color:var(--ok)}
+
+/* Markdown本文（概要・大項目直下・手順内で共通） */
+.md-content p{margin-bottom:.6em}
+.md-content p:last-child{margin-bottom:0}
+/* リストの記号・番号の左端を本文の左端に揃える（記号の幅だけ字下げする） */
+.page ul,.page ol{margin-bottom:.6em}
+.page ul{padding-left:1.1em}
+.page ol{padding-left:1.4em}
+.page li{margin-bottom:.2em}
+.md-content code{background:#eee;padding:1px 5px;border-radius:3px;
+  font-size:.85em;font-family:'Courier New',monospace}
+.md-content pre{background:#eee;padding:10px 12px;border-radius:5px;
+  overflow-x:auto;font-size:.85em;margin-bottom:.6em}
+.md-content pre code{background:transparent;padding:0}
+.md-content strong{font-weight:600}
+.step-img{max-width:100%;max-height:320px;object-fit:contain;
+  border:1px solid var(--border);margin-top:var(--space-sm);display:block}
+
+/* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
+.category,.step{scroll-margin-top:var(--space-lg)}
+.toc{position:fixed;top:var(--space-xl);left:calc(50% + 410px + var(--space-lg));width:240px;
+  max-height:calc(100vh - 2 * var(--space-xl));overflow-y:auto;font-size:.82rem;line-height:1.5}
+.toc-label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:var(--space-sm)}
+.toc > ol{scroll-target-group:auto}
+.toc ol{list-style:none}
+.toc ol ol{margin:var(--space-xs) 0 var(--space-sm)}
+.toc a{display:block;padding:3px var(--space-sm);border-left:2px solid var(--border);
+  color:var(--muted);text-decoration:none}
+.toc > ol > li > a{font-weight:700;color:var(--ink)}
+.toc ol ol a{padding-left:var(--space-md)}
+.toc a:hover{color:var(--accent)}
+.toc a:target-current{border-left-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+@media (max-width:1200px){.toc{display:none}}
+
+/* ── Footer ──────────────────────────────── */
+.doc-footer{text-align:center;padding-top:var(--space-md);margin-top:var(--space-sm);
+  border-top:1px solid var(--border);font-size:.75rem;color:#999}
+
+@media print{
+  .toc{display:none}
+  .page{max-width:none;padding:0}
+  body{font-size:12px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc-header">
+  <div class="doc-title">共有フォルダをネットワークドライブに割り当てる手順 準備</div>
+  <div class="doc-meta">作成日: 2026/09/28</div>
+  <div class="doc-meta">更新日: 2026/09/28</div>
+</header>
+
+
+<section class="doc-overview md-content">
+  <!--
+  ■ このファイルの使い方
+  このファイルをコピーして、中身を書き換えて使ってください。
+  「変換.bat」をダブルクリックすると、同じフォルダの .md が HTML と Excel に変換されます。
+  （.md ファイルを「変換.bat」にドラッグ＆ドロップして、そのファイルだけ変換することもできます）
+
+  ■ 先頭の --- で囲まれた部分（Front Matter）
+  title  : 手順書のタイトル（必須）
+  date   : 作成日（省略すると変換した日の日付になります）
+  update : 更新日
+  author : 作成者
+  「キー: 値」の形で書きます。値は "" で囲んでください。
+
+  ※ このように「＜!--」と「--＞」（どちらも半角）で囲んだ部分はコメントです。変換後の HTML・Excel には出力されません。
+     説明が不要になったら消してかまいません。
+--><p>この手順書では、社内の共有フォルダを Z ドライブとして使えるようにする方法を説明します。</p>
+<!--
+  ■ 最初の「#」より前の文章 … 手順書の前書き（概要）になります。
+-->
+</section>
+
+
+
+
+<section class="category" id="sec-1">
+  <h2 class="category-title">1. 準備</h2>
+  
+  <div class="category-body md-content"><!--
+  ■ 「# 見出し」… 大項目です。手順をいくつかのまとまりに分けるときに使います。
+--></div>
+  
+  
+  <section class="step" id="step-1">
+    <div class="step-num">1-1</div>
+    <div class="step-head">
+      <div class="step-ttl">共有フォルダの場所を確認する</div>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><!--
+  ■ 「## 見出し」… 手順です。1つの「##」が Excel の1行になります。
+     見出しは「～する」のように、やることを短く書くのがおすすめです。
+
+  ■ 見出しの直後の文章・番号付きリスト … 操作手順になります。
+     番号付きリストは「1.」「2.」…と書きます。
+--><ol>
+<li>管理者から届いたメールを開きます。</li>
+<li>メールに書かれている共有フォルダの場所（例: <code>\\fileserver\share</code>）を控えます。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>共有フォルダの場所（<code>\\</code> から始まる文字列）が手元に控えてあること。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+</section>
+
+<section class="category" id="sec-2">
+  <h2 class="category-title">2. ネットワークドライブの割り当て</h2>
+  
+  
+  <section class="step" id="step-2">
+    <div class="step-num">2-2</div>
+    <div class="step-head">
+      <div class="step-ttl">コマンドプロンプトを開く</div>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>キーボードの <strong>Windows キー</strong> を押します。</li>
+<li><code>cmd</code> と入力し、<strong>コマンド プロンプト</strong> をクリックします。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>黒い画面（コマンドプロンプト）が開くこと。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-3">
+    <div class="step-num">2-3</div>
+    <div class="step-head">
+      <div class="step-ttl">ドライブを割り当てる</div>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>次のコマンドを入力し、<strong>Enter</strong> キーを押します。<pre><code>net use Z: \\fileserver\share /persistent:yes
+</code></pre>
+</li>
+<li>ユーザー名とパスワードを聞かれた場合は、社内アカウントの情報を入力します。</li>
+</ol>
+<!--
+  ■ コマンドや設定値は「```」で囲むと、コードとして表示されます。
+     番号付きリストの中に書くときは、行頭を半角スペース3つ分さげます。
+--></div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>「コマンドは正常に終了しました。」と表示されること。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-4">
+    <div class="step-num">2-4</div>
+    <div class="step-head">
+      <div class="step-ttl">エクスプローラーで確認する</div>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>エクスプローラーを開き、左側の <strong>PC</strong> をクリックします。</li>
+<li><strong>Z:</strong> ドライブをダブルクリックします。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>共有フォルダの中身が表示されること。</p>
+<p><img src="data:image/png;base64,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" alt="エクスプローラーの画面"></p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-5">
+    <div class="step-num">2-5</div>
+    <div class="step-head">
+      <div class="step-ttl">後片付け</div>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><p>作業が終わったら、コマンドプロンプトを閉じます。</p>
+<!--
+  ■ 期待値（行頭の「＞」）は省略してもかまいません。
+--></div>
+      </div>
+      
+    </div>
+  </section>
+  
+</section>
+
+
+<footer class="doc-footer">
+  Generated by Tejun.ts &mdash; 2026/09/28
+</footer>
+
+</div>
+
+<nav class="toc" aria-label="目次">
+  <div class="toc-label">目次</div>
+  <ol>
+    
+    <li>
+      <a href="#sec-1">1. 準備</a>
+      
+      <ol>
+        
+        <li><a href="#step-1">1-1 共有フォルダの場所を確認する</a></li>
+        
+      </ol>
+      
+    </li>
+    
+    <li>
+      <a href="#sec-2">2. ネットワークドライブの割り当て</a>
+      
+      <ol>
+        
+        <li><a href="#step-2">2-2 コマンドプロンプトを開く</a></li>
+        
+        <li><a href="#step-3">2-3 ドライブを割り当てる</a></li>
+        
+        <li><a href="#step-4">2-4 エクスプローラーで確認する</a></li>
+        
+        <li><a href="#step-5">2-5 後片付け</a></li>
+        
+      </ol>
+      
+    </li>
+    
+  </ol>
+</nav>
+</body>
+</html>
