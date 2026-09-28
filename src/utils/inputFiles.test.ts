@@ -52,6 +52,23 @@ describe('expandInputFiles', () => {
       expect(await expandInputFiles(['docs/*'])).toEqual(['docs/a.MARKDOWN', 'docs/b.md']);
     });
 
+    it('node_modules フォルダを探索から除外する', async () => {
+      vi.mocked(fs.promises.glob).mockReturnValue(globResult(['a.md']));
+      await expandInputFiles(['./**/*.md']);
+      const options = vi.mocked(fs.promises.glob).mock.calls[0][1];
+      const exclude = options?.exclude;
+      if (typeof exclude !== 'function') throw new Error('exclude が関数ではありません');
+      expect(exclude('node_modules')).toBe(true);
+      expect(exclude('sub/node_modules')).toBe(true);
+      expect(exclude('docs')).toBe(false);
+    });
+
+    it('パターンに node_modules を明示した場合は除外しない', async () => {
+      vi.mocked(fs.promises.glob).mockReturnValue(globResult(['node_modules/pkg/a.md']));
+      await expandInputFiles(['node_modules/pkg/*.md']);
+      expect(vi.mocked(fs.promises.glob).mock.calls[0][1]?.exclude).toBeUndefined();
+    });
+
     it('複数の指定に一致した同じファイルは1つにまとめる', async () => {
       vi.mocked(fs.promises.glob).mockReturnValue(globResult(['docs/a.md', 'docs/b.md']));
       expect(await expandInputFiles(['docs/a.md', 'docs/*.md'])).toEqual([
