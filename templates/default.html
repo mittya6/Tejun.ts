@@ -29,6 +29,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .category img{max-width:100%;height:auto}
 .category-title{font-size:1.3rem;font-weight:800;border-bottom:2px solid var(--ink);
   padding-bottom:var(--space-xs);margin-bottom:var(--space-lg)}
+.category-body{margin-bottom:var(--space-lg)}
 
 /* ── Step（整列: 番号カラムを固定し、見出し・本文の左端を揃える） ── */
 .step{display:grid;grid-template-columns:44px 1fr;column-gap:var(--space-md);
@@ -55,19 +56,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .step-block.instruction .step-block-label{color:var(--accent)}
 .step-block.expected .step-block-label{color:var(--ok)}
 
-.step-content p{margin-bottom:.6em}
-.step-content p:last-child{margin-bottom:0}
+/* Markdown本文（概要・大項目直下・手順内で共通） */
+.md-content p{margin-bottom:.6em}
+.md-content p:last-child{margin-bottom:0}
 /* リストの記号・番号の左端を本文の左端に揃える（記号の幅だけ字下げする） */
 .page ul,.page ol{margin-bottom:.6em}
 .page ul{padding-left:1.1em}
 .page ol{padding-left:1.4em}
 .page li{margin-bottom:.2em}
-.step-content code{background:#eee;padding:1px 5px;border-radius:3px;
+.md-content code{background:#eee;padding:1px 5px;border-radius:3px;
   font-size:.85em;font-family:'Courier New',monospace}
-.step-content pre{background:#eee;padding:10px 12px;border-radius:5px;
+.md-content pre{background:#eee;padding:10px 12px;border-radius:5px;
   overflow-x:auto;font-size:.85em;margin-bottom:.6em}
-.step-content pre code{background:transparent;padding:0}
-.step-content strong{font-weight:600}
+.md-content pre code{background:transparent;padding:0}
+.md-content strong{font-weight:600}
 .step-img{max-width:100%;max-height:320px;object-fit:contain;
   border:1px solid var(--border);margin-top:var(--space-sm);display:block}
 
@@ -109,8 +111,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 </header>
 
 {{#if root.body}}
-<section class="doc-overview">
-  <p>{{root.body}}</p>
+<section class="doc-overview md-content">
+  {{root.body}}
 </section>
 {{/if}}
 
@@ -118,7 +120,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 {{#each # steps}}
 <section class="category" id="sec-{{#.index}}">
   <h2 class="category-title">{{#.index}}. {{#}}</h2>
-  {{#.body}}
+  {{#if #.body}}
+  <div class="category-body md-content">{{#.body}}</div>
+  {{/if}}
   {{#each ## steps}}
   <section class="step" id="step-{{##.index}}">
     <div class="step-num">{{#.index}}-{{##.index}}</div>
@@ -128,12 +132,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     <div class="step-body">
       <div class="step-block instruction">
         <div class="step-block-label">操作手順</div>
-        <div class="step-content">{{##.body}}</div>
+        <div class="step-content md-content">{{##.body}}</div>
       </div>
       {{#if ##.>}}
       <div class="step-block expected">
         <div class="step-block-label">期待される結果</div>
-        <div class="step-content">{{##.>}}</div>
+        <div class="step-content md-content">{{##.>}}</div>
       </div>
       {{/if}}
     </div>
