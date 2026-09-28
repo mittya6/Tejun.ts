@@ -52,8 +52,16 @@ tejun <Markdownファイル> [オプション]
 | `-f, --format <format>` | 出力形式。`html` / `excel` / `both` | `both` |
 | `-o, --out <directory>` | 出力先ディレクトリ | `.`（カレントディレクトリ） |
 | `-t, --template <file>` | テンプレートファイル（`.html` または `.xlsx`） | `templates/default.html` / `templates/default.xlsx` |
+| `-n, --name <property>` | 出力ファイル名に使うFront Matterのプロパティ（例: `meta.filename`） | なし（入力ファイル名を使用） |
 
-出力ファイル名は、入力ファイル名の拡張子を `.html` / `.xlsx` に変えたものになります。
+出力ファイル名は、入力ファイル名の拡張子を `.html` / `.xlsx` に変えたものになります。`-n meta.filename` のように指定すると、Front Matterの `filename` の値に拡張子を付けたものになります。指定したプロパティが未定義・空の場合や、ファイル名に使えない文字（`/ \ : * ? " < > |`）を含む場合はエラーになります。
+
+```markdown
+---
+title: サーバー構築手順
+filename: サーバー構築手順_v1
+---
+```
 
 ```bash
 # HTMLとExcelの両方を ./output に出力する
@@ -61,6 +69,9 @@ tejun ./procedure.md -o ./output
 
 # 自作のExcelテンプレートを使ってExcelだけ出力する
 tejun ./procedure.md -f excel -t ./my-template.xlsx -o ./output
+
+# Front Matterの filename の値を出力ファイル名にする
+tejun ./procedure.md -n meta.filename
 ```
 
 `-f both` で `-t` を指定した場合、テンプレートは拡張子が合う形式にだけ使われ、もう一方の形式は既定のテンプレートで出力されます。

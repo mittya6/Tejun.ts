@@ -34,6 +34,7 @@ async function embedImages(node: DocNode, basePath: string): Promise<DocNode> {
  * @param inputFilePath 入力Markdownファイルのパス（画像の相対パス解決に使用）
  * @param outputDir 出力先ディレクトリ
  * @param templatePath カスタムHTMLテンプレートファイルのパス（省略時はデフォルトテンプレートを使用）
+ * @param outputBaseName 出力ファイル名（拡張子なし。省略時は入力ファイル名を使用）
  * @returns 生成されたHTMLファイルのパス
  */
 export async function generateHtml(
@@ -41,6 +42,7 @@ export async function generateHtml(
   inputFilePath: string,
   outputDir: string,
   templatePath?: string,
+  outputBaseName?: string,
 ): Promise<string> {
   const resolvedInputPath = path.resolve(inputFilePath);
   const basePath = path.dirname(resolvedInputPath);
@@ -95,7 +97,7 @@ export async function generateHtml(
   }
 
   // 出力ファイルパスの決定
-  const baseName = path.basename(inputFilePath, path.extname(inputFilePath));
+  const baseName = outputBaseName ?? path.basename(inputFilePath, path.extname(inputFilePath));
   const outPath = path.join(outputDir, `${baseName}.html`);
 
   await fs.promises.mkdir(outputDir, { recursive: true });

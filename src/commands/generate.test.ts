@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
-import { runGenerate } from './generate';
+import { runGenerate, resolveOutputBaseName } from './generate';
 import { parseMarkdown } from '../parser/markdownParser';
 import { generateHtml } from '../generators/htmlGenerator';
 import { generateExcel } from '../generators/excelGenerator';
@@ -65,6 +65,14 @@ describe('runGenerate', () => {
         runGenerate('input.md', { format: 'both', out: '.', template: 'template.docx' }),
       ).rejects.toThrow(GeneratorError);
     });
+
+    it('--name のプロパティがFront Matterにない場合は ParseError をスローし何も生成しない', async () => {
+      await expect(
+        runGenerate('input.md', { format: 'both', out: '.', name: 'meta.filename' }),
+      ).rejects.toThrow(ParseError);
+      expect(generateHtml).not.toHaveBeenCalled();
+      expect(generateExcel).not.toHaveBeenCalled();
+    });
   });
 
   describe('正常系', () => {
@@ -97,7 +105,32 @@ describe('runGenerate', () => {
         expect.any(String),
         expect.any(String),
         'my-template.html',
+        undefined,
       );
+    });
+
+    it('--name 指定時、Front Matterの値が出力ファイル名として両方の生成に渡される', async () => {
+      vi.mocked(parseMarkdown).mockReturnValue({ ...SAMPLE_DOC, meta: { filename: '手順書_v1' } });
+      await runGenerate('input.md', { format: 'both', out: '.', name: 'meta.filename' });
+      expect(generateHtml).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        undefined,
+        '手順書_v1',
+      );
+      expect(generateExcel).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        undefined,
+        '手順書_v1',
+      );
+    });
+
+    it('--name 未指定時は出力ファイル名を渡さない', async () => {
+      await runGenerate('input.md', { format: 'html', out: '.' });
+      expect(vi.mocked(generateHtml).mock.calls[0][4]).toBeUndefined();
     });
 
     it('.xlsxテンプレート指定時、generateExcelにテンプレートパスが渡される', async () => {
@@ -111,7 +144,31 @@ describe('runGenerate', () => {
         expect.any(String),
         expect.any(String),
         'my-template.xlsx',
+        undefined,
       );
     });
   });
+});
+
+describe('resolveOutputBaseName', () => {
+  it('meta.プロパティ名 で指定した値を返す（前後の空白は除く）', () => {
+    expect(resolveOutputBaseName({ filename: ' 手順書_v1 ' }, 'meta.filename')).toBe('手順書_v1');
+  });
+
+  it('meta. で始まらない指定は ParseError をスローする', () => {
+    expect(() => resolveOutputBaseName({ filename: 'a' }, 'filename')).toThrow(ParseError);
+    expect(() => resolveOutputBaseName({ filename: 'a' }, 'meta.')).toThrow(ParseError);
+  });
+
+  it('値が未定義または空の場合は ParseError をスローする', () => {
+    expect(() => resolveOutputBaseName({}, 'meta.filename')).toThrow(ParseError);
+    expect(() => resolveOutputBaseName({ filename: '  ' }, 'meta.filename')).toThrow(ParseError);
+  });
+
+  it.each(['../evil', 'a/b', 'a\b', 'a:b', 'a*b', 'a?b', '..'])(
+    'ファイル名に使えない値 %s は ParseError をスローする',
+    (value) => {
+      expect(() => resolveOutputBaseName({ filename: value }, 'meta.filename')).toThrow(ParseError);
+    },
+  );
 });

@@ -24,10 +24,19 @@ program
   )
   .option('-o, --out <directory>', '出力先ディレクトリ', '.')
   .option('-t, --template <file>', 'カスタムテンプレートファイル（.html または .xlsx）')
+  .option(
+    '-n, --name <property>',
+    '出力ファイル名に使うFront Matterのプロパティ（例: meta.filename）',
+  )
   .action(
     async (
       file: string,
-      options: { format: 'html' | 'excel' | 'both'; out: string; template?: string },
+      options: {
+        format: 'html' | 'excel' | 'both';
+        out: string;
+        template?: string;
+        name?: string;
+      },
     ) => {
       try {
         await runGenerate(file, options);

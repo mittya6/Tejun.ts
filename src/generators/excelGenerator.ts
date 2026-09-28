@@ -227,6 +227,7 @@ function copyWorksheet(src: ExcelJS.Worksheet, dest: ExcelJS.Worksheet): void {
  * @param inputFilePath 入力Markdownファイルのパス
  * @param outputDir 出力先ディレクトリ
  * @param templatePath カスタムExcelテンプレートのパス（省略時はデフォルトテンプレートを使用）
+ * @param outputBaseName 出力ファイル名（拡張子なし。省略時は入力ファイル名を使用）
  * @returns 生成されたExcelファイルのパス
  */
 export async function generateExcel(
@@ -234,6 +235,7 @@ export async function generateExcel(
   inputFilePath: string,
   outputDir: string,
   templatePath?: string,
+  outputBaseName?: string,
 ): Promise<string> {
   const basePath = path.dirname(path.resolve(inputFilePath));
   const workbook = new ExcelJS.Workbook();
@@ -247,7 +249,7 @@ export async function generateExcel(
     throw new GeneratorError(`Excelの生成に失敗しました: ${String(err)}`);
   }
 
-  const baseName = path.basename(inputFilePath, path.extname(inputFilePath));
+  const baseName = outputBaseName ?? path.basename(inputFilePath, path.extname(inputFilePath));
   const outPath = path.join(outputDir, `${baseName}.xlsx`);
 
   await fs.promises.mkdir(outputDir, { recursive: true });

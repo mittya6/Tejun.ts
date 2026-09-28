@@ -11,6 +11,39 @@ export interface GenerateOptions {
   format: 'html' | 'excel' | 'both';
   out: string;
   template?: string;
+  /** 出力ファイル名に使うFront Matterのプロパティ（例: `meta.filename`） */
+  name?: string;
+}
+
+/** `--name` で指定するプロパティの接頭辞 */
+const META_PREFIX = 'meta.';
+
+/** ファイル名に使えない文字（Windowsの禁止文字・パス区切り・制御文字） */
+const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/;
+
+/**
+ * `--name` で指定されたFront Matterのプロパティから、出力ファイル名（拡張子なし）を決定する
+ *
+ * @param meta Front Matterの全プロパティ
+ * @param nameProperty `meta.プロパティ名` 形式のプロパティ指定
+ * @returns 出力ファイル名（拡張子なし）
+ * @throws ParseError 指定形式が不正、値が未定義・空、またはファイル名に使えない文字を含む場合
+ */
+export function resolveOutputBaseName(meta: Record<string, string>, nameProperty: string): string {
+  if (!nameProperty.startsWith(META_PREFIX) || nameProperty.length === META_PREFIX.length) {
+    throw new ParseError(
+      `--name には meta.プロパティ名 の形式で指定してください（例: meta.filename）: ${nameProperty}`,
+    );
+  }
+  const key = nameProperty.slice(META_PREFIX.length);
+  const value = meta[key]?.trim();
+  if (!value) {
+    throw new ParseError(`Front Matterにファイル名のプロパティ「${key}」が定義されていません。`);
+  }
+  if (INVALID_FILENAME_CHARS.test(value) || value === '.' || value === '..') {
+    throw new ParseError(`プロパティ「${key}」の値はファイル名に使用できません: ${value}`);
+  }
+  return value;
 }
 
 /**
@@ -40,6 +73,7 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
   // Markdownの読み込みと解析
   const content = await fs.promises.readFile(resolvedInput, 'utf-8');
   const doc = parseMarkdown(content);
+  const outputBaseName = options.name ? resolveOutputBaseName(doc.meta, options.name) : undefined;
 
   console.log(`\n📄  ${doc.title}`);
   console.log(
@@ -75,7 +109,7 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
       options.template && (templateExt === '.html' || templateExt === '.htm')
         ? options.template
         : undefined;
-    const outPath = await generateHtml(doc, resolvedInput, outputDir, htmlTemplate);
+    const outPath = await generateHtml(doc, resolvedInput, outputDir, htmlTemplate, outputBaseName);
     console.log(`  ✅  HTML: ${outPath}`);
     results.push(outPath);
   }
@@ -84,7 +118,13 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
   if (shouldExcel) {
     const excelTemplate =
       options.template && templateExt === '.xlsx' ? options.template : undefined;
-    const outPath = await generateExcel(doc, resolvedInput, outputDir, excelTemplate);
+    const outPath = await generateExcel(
+      doc,
+      resolvedInput,
+      outputDir,
+      excelTemplate,
+      outputBaseName,
+    );
     console.log(`  ✅  Excel: ${outPath}`);
     results.push(outPath);
   }
