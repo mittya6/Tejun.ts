@@ -154,7 +154,7 @@ tejun <Markdownファイル...> [オプション]
 | オプション | 説明 | 既定値 |
 | --- | --- | --- |
 | `-f, --format <format>` | 出力形式。`html` / `excel` / `both` | `both` |
-| `-o, --out <directory>` | 出力先ディレクトリ | `.`（カレントディレクトリ） |
+| `-o, --out <directory>` | 出力先ディレクトリ | `./output` |
 | `-t, --template <file\|name>` | テンプレートファイル（`.html` または `.xlsx`）、またはプリセット名（例: `simple`） | `templates/default.html` / `templates/default.xlsx` |
 | `-n, --name <property>` | 出力ファイル名に使うFront Matterのプロパティ（例: `meta.filename`） | なし（入力ファイル名を使用） |
 

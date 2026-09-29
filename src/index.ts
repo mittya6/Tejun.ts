@@ -40,7 +40,7 @@ program
     },
     'both',
   )
-  .option('-o, --out <directory>', '出力先ディレクトリ', '.')
+  .option('-o, --out <directory>', '出力先ディレクトリ', './output')
   .option(
     '-t, --template <file|name>',
     'テンプレートファイル（.html または .xlsx）、またはプリセット名（例: simple）',
