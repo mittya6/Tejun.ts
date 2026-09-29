@@ -143,7 +143,7 @@ describe('renderTemplate', () => {
   describe('{{#each 記号 steps}} ループ', () => {
     it('{{#each ### steps}} は全手順をフラットに繰り返す', () => {
       const tpl = '{{#each ### steps}}[{{###.index}}:{{###}}]{{/each}}';
-      expect(renderTemplate(tpl, SAMPLE_CTX)).toBe('[1:手順1][2:手順2][3:手順3]');
+      expect(renderTemplate(tpl, SAMPLE_CTX)).toBe('[1:手順1][2:手順2][1:手順3]');
     });
 
     it('フラットなループの内側でも {{##}} は手順が属する大項目になる', () => {
@@ -154,7 +154,7 @@ describe('renderTemplate', () => {
     it('{{#each ## steps}} に {{#each ### steps}} をネストすると大項目ごとの手順だけを繰り返す', () => {
       const tpl =
         '{{#each ## steps}}<{{##.index}}.{{##}}:{{#each ### steps}}({{##.index}}-{{###.index}}){{/each}}>{{/each}}';
-      expect(renderTemplate(tpl, SAMPLE_CTX)).toBe('<1.大項目A:(1-1)(1-2)><2.大項目B:(2-3)>');
+      expect(renderTemplate(tpl, SAMPLE_CTX)).toBe('<1.大項目A:(1-1)(1-2)><2.大項目B:(2-1)>');
     });
 
     it('{{###.body}} は最初の引用より前の本文、{{###.>}} / {{>}} は最初の引用のHTMLになる（エスケープなし）', () => {

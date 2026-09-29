@@ -185,8 +185,6 @@ export function parseMarkdown(content: string): ProcedureDocument {
   const sections: Section[] = [rootSection];
   // 現在の見出しの入れ子（先頭はルート）
   const stack: Section[] = [rootSection];
-  // 見出しレベルごとの文書全体での出現数（添字がレベル）
-  const headingCounts = [0, 0, 0, 0, 0, 0, 0];
   let firstH1: string | undefined;
   let enteredSections = false;
   const overviewParts: string[] = [];
@@ -195,14 +193,11 @@ export function parseMarkdown(content: string): ProcedureDocument {
     if (token.type === 'heading') {
       if (token.depth === 1) firstH1 ??= token.text;
       while (stack[stack.length - 1].level >= token.depth) stack.pop();
-      headingCounts[token.depth]++;
-      const node: DocNode = {
-        symbol: '#'.repeat(token.depth) as HeadingSymbol,
-        content: token.text,
-        index: headingCounts[token.depth],
-        children: [],
-      };
-      stack[stack.length - 1].node.children.push(node);
+      const node = appendChild(
+        stack[stack.length - 1].node,
+        '#'.repeat(token.depth) as HeadingSymbol,
+        token.text,
+      );
       const section: Section = { node, level: token.depth, bodyParts: [], quoteFound: false };
       sections.push(section);
       stack.push(section);

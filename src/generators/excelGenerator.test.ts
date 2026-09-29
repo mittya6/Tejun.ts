@@ -98,7 +98,7 @@ describe('generateExcel', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
-    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '1-2', '2-3']);
+    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '1-2', '2-1']);
   });
 
   it('カスタムテンプレートの行ループの行を展開する', async () => {

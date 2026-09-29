@@ -63,10 +63,10 @@ describe('parseMarkdown', () => {
       expect(nodesOf(h2s[1], '###').map((n) => n.content)).toEqual(['2.1 ログアウト操作']);
     });
 
-    it('見出しの連番は文書全体を通した同じレベルの連番になる', () => {
+    it('見出しの連番は親の見出しが変わると1に戻る', () => {
       const doc = parseMarkdown(SAMPLE_MD);
       expect(nodesOf(doc.root, '##').map((n) => n.index)).toEqual([1, 2]);
-      expect(nodesOf(doc.root, '###').map((n) => n.index)).toEqual([1, 2, 3]);
+      expect(nodesOf(doc.root, '###').map((n) => n.index)).toEqual([1, 2, 1]);
     });
 
     it('H4〜H6も上位の見出しの子になる', () => {

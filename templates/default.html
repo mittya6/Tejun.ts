@@ -75,8 +75,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 /* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
 .category,.step{scroll-margin-top:var(--space-lg)}
-.toc{position:fixed;top:var(--space-xl);left:calc(50% + 410px + var(--space-lg));width:240px;
-  max-height:calc(100vh - 2 * var(--space-xl));overflow-y:auto;font-size:.82rem;line-height:1.5}
+/* popover属性のブラウザ既定スタイル（中央配置・枠線・背景）を打ち消し、幅が広い場合は常に表示する */
+.toc{display:block;position:fixed;inset:auto;top:var(--space-xl);left:calc(50% + 410px + var(--space-lg));width:240px;
+  height:auto;max-height:calc(100vh - 2 * var(--space-xl));margin:0;padding:0;border:none;
+  background:none;color:inherit;overflow-y:auto;font-size:.82rem;line-height:1.5}
 .toc-label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.06em;margin-bottom:var(--space-sm)}
 .toc > ol{scroll-target-group:auto}
@@ -88,14 +90,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .toc ol ol a{padding-left:var(--space-md)}
 .toc a:hover{color:var(--accent)}
 .toc a:target-current{border-left-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
-@media (max-width:1200px){.toc{display:none}}
+/* 幅が狭い場合はメニューアイコンを表示し、押すと右端から目次を表示する（外側クリック・Escで閉じる） */
+.toc-toggle{display:none;position:fixed;top:var(--space-md);right:var(--space-md);z-index:10;
+  width:40px;height:40px;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;
+  box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.toc-toggle:hover{color:var(--accent);border-color:var(--accent)}
+@media (max-width:1200px){
+  .toc-toggle{display:flex}
+  .toc:not(:popover-open){display:none}
+  .toc{top:0;right:0;left:auto;width:min(300px,85vw);height:100vh;max-height:none;
+    padding:var(--space-lg) var(--space-md);background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15)}
+  .toc::backdrop{background:rgba(0,0,0,.3)}
+}
 
 /* ── Footer ──────────────────────────────── */
 .doc-footer{text-align:center;padding-top:var(--space-md);margin-top:var(--space-sm);
   border-top:1px solid var(--border);font-size:.75rem;color:#999}
 
 @media print{
-  .toc{display:none}
+  .toc,.toc-toggle{display:none}
   .page{max-width:none;padding:0}
   body{font-size:12px}
 }
@@ -124,7 +138,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   <div class="category-body md-content">{{#.body}}</div>
   {{/if}}
   {{#each ## steps}}
-  <section class="step" id="step-{{##.index}}">
+  <section class="step" id="step-{{#.index}}-{{##.index}}">
     <div class="step-num">{{#.index}}-{{##.index}}</div>
     <div class="step-head">
       <div class="step-ttl">{{##}}</div>
@@ -152,7 +166,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 </div>
 
-<nav class="toc" aria-label="目次">
+<button type="button" class="toc-toggle" popovertarget="toc" aria-label="目次を開く">
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+
+<nav class="toc" id="toc" popover aria-label="目次">
   <div class="toc-label">目次</div>
   <ol>
     {{#each # steps}}
@@ -161,7 +181,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
       {{#if ##}}
       <ol>
         {{#each ## steps}}
-        <li><a href="#step-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
+        <li><a href="#step-{{#.index}}-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
         {{/each}}
       </ol>
       {{/if}}
@@ -169,5 +189,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     {{/each}}
   </ol>
 </nav>
+<script>
+// 幅が狭い場合に開いた目次は、項目を選んだら閉じる
+document.getElementById('toc').addEventListener('click', function (e) {
+  if (e.target.closest('a') && this.matches(':popover-open')) this.hidePopover();
+});
+</script>
 </body>
 </html>
