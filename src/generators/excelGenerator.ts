@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { GeneratorError } from '../utils/errors';
 import { expandLoopChains, extractRowLoop, replaceCellVariables } from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
+import { estimateRowHeight, type CellLayout } from './rowHeight';
 import type {
   DocNode,
   ImageRef,
@@ -19,6 +20,12 @@ const DEFAULT_EXCEL_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates'
 const SUPPORTED_IMG_EXTS = new Set(['png', 'jpeg', 'gif']);
 
 const IMAGE_ROW_HEIGHT = 100;
+
+/** テンプレートに列幅の指定が無い場合のExcel標準の列幅 */
+const DEFAULT_COLUMN_WIDTH = 8.43;
+
+/** テンプレートにフォントサイズの指定が無い場合のExcel標準のフォントサイズ（pt） */
+const DEFAULT_FONT_SIZE = 11;
 
 /**
  * 画像ファイルを読み込んでbase64文字列と拡張子を返す
@@ -148,25 +155,39 @@ async function buildFromTemplate(
   // テンプレート行を削除して行ループの要素分の行を挿入
   templateWs.spliceRows(templateRowNumber, 1);
 
+  const defaultColumnWidth = templateWs.properties.defaultColWidth ?? DEFAULT_COLUMN_WIDTH;
   const chains = expandLoopChains([ctx.root], rowLoop.symbols);
   const images = chains.map((chain) => rowImage(chain[chain.length - 1]));
   let insertAt = templateRowNumber;
   chains.forEach((chain, i) => {
     templateWs.spliceRows(insertAt, 0, []);
     const newRow = templateWs.getRow(insertAt);
-    // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる
-    const rowHeight = images[i] ? IMAGE_ROW_HEIGHT : templateRow.height;
-    if (rowHeight !== undefined) newRow.height = rowHeight;
 
+    const layouts: CellLayout[] = [];
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      cell.value = replaceCellVariables(cellDef.value, ctx, chain, chains[i - 1]);
+      const text = replaceCellVariables(cellDef.value, ctx, chain, chains[i - 1]);
+      cell.value = text;
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
       if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;
       if (cellDef.style.border) cell.border = cellDef.style.border;
+      layouts.push({
+        text,
+        columnWidth: templateWs.getColumn(colNum).width ?? defaultColumnWidth,
+        fontSize: cellDef.style.font?.size ?? DEFAULT_FONT_SIZE,
+        wrapText: cellDef.style.alignment?.wrapText ?? false,
+      });
     });
+
+    // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる。
+    // 高さがあればそれを最小値として、内容に合わせて高くする
+    if (images[i]) {
+      newRow.height = IMAGE_ROW_HEIGHT;
+    } else if (templateRow.height !== undefined) {
+      newRow.height = Math.max(templateRow.height, estimateRowHeight(layouts));
+    }
 
     newRow.commit();
     insertAt++;

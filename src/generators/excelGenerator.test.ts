@@ -224,6 +224,40 @@ describe('generateExcel', () => {
     expect(ws.getRow(2).height).toBe(55);
   });
 
+  it('折り返しセルの内容がテンプレートの高さに収まらなければ行を高くする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-autoheight.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}';
+    tplWs.getRow(1).getCell(2).value = '{{###}}\n{{###.body}}{{/each}}';
+    tplWs.getRow(1).getCell(2).alignment = { wrapText: true };
+    tplWs.getColumn(2).width = 11;
+    tplWs.getRow(1).height = 20;
+    await tplWb.xlsx.writeFile(templatePath);
+
+    const doc = parseMarkdown(`# T
+
+### 短い
+
+本文
+
+### 長い
+
+1行目
+2行目
+3行目
+`);
+    const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+    const ws = wb.worksheets[0];
+
+    const shortHeight = ws.getRow(1).height;
+    const longHeight = ws.getRow(2).height;
+    expect(shortHeight).toBeGreaterThan(20);
+    expect(longHeight).toBeGreaterThan(shortHeight);
+  });
+
   it('ローカル画像を埋め込む', async () => {
     const imagePath = path.join(tmpDir, 'screen.png');
     await fs.promises.writeFile(imagePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
