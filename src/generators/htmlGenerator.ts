@@ -4,16 +4,23 @@ import { marked } from 'marked';
 import { renderTemplate } from '../template/templateEngine';
 import { parseFrontMatter } from '../parser/markdownParser';
 import { GeneratorError, TemplateError } from '../utils/errors';
-import { embedImagesInHtml } from '../utils/imageUtils';
+import { embedImagesInHtml, wrapImagesForZoom } from '../utils/imageUtils';
 import type { DocNode, ProcedureDocument, TemplateContext } from '../parser/types';
 
 /** 未指定時に使用するデフォルトHTMLテンプレートのパス */
 const DEFAULT_HTML_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'default.html');
 
 /**
- * ツリーの各要素のHTML（内容・本文）に含まれる `<img>` タグの画像をData URIに変換する
+ * HTML中の `<img>` タグの画像をData URIに変換し、クリックで拡大表示できるよう `<label>` で囲む
  *
  * 画像ファイルが見つからない場合は元のパスを維持する（`embedImagesInHtml` の動作に従う）。
+ */
+async function processImages(html: string, basePath: string): Promise<string> {
+  return wrapImagesForZoom(await embedImagesInHtml(html, basePath));
+}
+
+/**
+ * ツリーの各要素のHTML（内容・本文）に含まれる `<img>` タグに `processImages` を適用する
  */
 async function embedImages(node: DocNode, basePath: string): Promise<DocNode> {
   return {
@@ -21,8 +28,8 @@ async function embedImages(node: DocNode, basePath: string): Promise<DocNode> {
     // 見出しの内容はプレーンテキストなので対象外
     content: node.symbol.startsWith('#')
       ? node.content
-      : await embedImagesInHtml(node.content, basePath),
-    body: node.body && (await embedImagesInHtml(node.body, basePath)),
+      : await processImages(node.content, basePath),
+    body: node.body && (await processImages(node.body, basePath)),
     children: await Promise.all(node.children.map((child) => embedImages(child, basePath))),
   };
 }
@@ -50,7 +57,7 @@ export async function generateHtml(
   // 画像をData URIに変換
   const rootWithImages = await embedImages(doc.root, basePath);
   const overviewWithImages = doc.overview
-    ? await embedImagesInHtml(doc.overview, basePath)
+    ? await processImages(doc.overview, basePath)
     : doc.overview;
 
   // 入力Markdown全文（Front Matter除く）をHTMLに変換（テンプレートの `${markdown}` 用）
@@ -59,7 +66,7 @@ export async function generateHtml(
     const rawContent = await fs.promises.readFile(resolvedInputPath, 'utf-8');
     const { body } = parseFrontMatter(rawContent);
     markdownHtml = marked.parse(body) as string;
-    markdownHtml = await embedImagesInHtml(markdownHtml, basePath);
+    markdownHtml = await processImages(markdownHtml, basePath);
   } catch (err) {
     throw new GeneratorError(
       `Markdownファイルを読み込めません: ${resolvedInputPath}\n${String(err)}`,

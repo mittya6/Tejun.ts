@@ -1,5 +1,5 @@
 import { marked } from 'marked';
-import type { Token } from 'marked';
+import type { Links, Token } from 'marked';
 import { ParseError } from '../utils/errors';
 import type { DocNode, HeadingSymbol, ImageRef, NodeSymbol, ProcedureDocument } from './types';
 
@@ -58,6 +58,22 @@ export function parseFrontMatter(content: string): { frontMatter: FrontMatter; b
 }
 
 /**
+ * Markdownの断片をHTMLに変換する
+ *
+ * 文書の一部だけを変換すると、断片の外（文書末尾など）にある参照定義（`[label]: url`）が
+ * 見えず参照リンク・参照画像が解決されないため、文書全体の参照定義を引き継いで変換する。
+ *
+ * @param markdown 変換するMarkdownの断片
+ * @param links 文書全体から集めた参照定義
+ * @returns 変換後のHTML
+ */
+function parseFragment(markdown: string, links: Links): string {
+  const lexer = new marked.Lexer();
+  Object.assign(lexer.tokens.links, links);
+  return marked.parser(lexer.lex(markdown));
+}
+
+/**
  * トークンツリーを再帰的に探索して最初の画像トークンを返す
  */
 function findFirstImage(tokens: Token[]): ImageRef | undefined {
@@ -97,7 +113,10 @@ function findFirstImage(tokens: Token[]): ImageRef | undefined {
  *
  * 先頭などにある「期待値」ヘッダー行は取り除く。画像は元の記述順のままHTMLに残す。
  */
-function processBlockquote(blockquoteToken: Extract<Token, { type: 'blockquote' }>): {
+function processBlockquote(
+  blockquoteToken: Extract<Token, { type: 'blockquote' }>,
+  links: Links,
+): {
   html: string;
   image: ImageRef | undefined;
 } {
@@ -110,7 +129,7 @@ function processBlockquote(blockquoteToken: Extract<Token, { type: 'blockquote' 
     .trim();
 
   return {
-    html: markdown ? (marked.parse(markdown) as string) : '',
+    html: markdown ? parseFragment(markdown, links) : '',
     image: findFirstImage(blockquoteToken.tokens),
   };
 }
@@ -131,19 +150,22 @@ function appendChild(parent: DocNode, symbol: NodeSymbol, content: string): DocN
 
 /**
  * 見出し以外のブロックトークンから、引用・リスト項目・コードブロックの要素を作って `parent` に追加する。
- * 引用とリスト項目の中身も再帰的にたどる。
+ * 引用とリスト項目の中身も再帰的にたどる。`links` は文書全体の参照定義。
  */
-function appendBlocks(parent: DocNode, tokens: Token[]): void {
+function appendBlocks(parent: DocNode, tokens: Token[], links: Links): void {
   for (const token of tokens) {
     if (token.type === 'blockquote') {
-      const { html, image } = processBlockquote(token as Extract<Token, { type: 'blockquote' }>);
+      const { html, image } = processBlockquote(
+        token as Extract<Token, { type: 'blockquote' }>,
+        links,
+      );
       const node = appendChild(parent, '>', html);
       if (image) node.image = image;
-      appendBlocks(node, token.tokens ?? []);
+      appendBlocks(node, token.tokens ?? [], links);
     } else if (token.type === 'list') {
       for (const item of token.items) {
         const html = marked.parser(item.tokens);
-        appendBlocks(appendChild(parent, token.ordered ? '1.' : '-', html), item.tokens);
+        appendBlocks(appendChild(parent, token.ordered ? '1.' : '-', html), item.tokens, links);
       }
     } else if (token.type === 'code') {
       appendChild(parent, '```', marked.parser([token]));
@@ -214,12 +236,12 @@ export function parseMarkdown(content: string): ProcedureDocument {
     } else if (!section.quoteFound) {
       section.bodyParts.push(token.raw.trim());
     }
-    appendBlocks(section.node, [token]);
+    appendBlocks(section.node, [token], tokens.links);
   }
 
   for (const section of sections) {
     const bodyMarkdown = section.bodyParts.join('\n\n');
-    section.node.body = bodyMarkdown ? (marked.parse(bodyMarkdown) as string) : '';
+    section.node.body = bodyMarkdown ? parseFragment(bodyMarkdown, tokens.links) : '';
   }
 
   const resolvedTitle = frontMatter.title || firstH1;
@@ -241,7 +263,7 @@ export function parseMarkdown(content: string): ProcedureDocument {
         day: '2-digit',
       }),
     update: frontMatter.update,
-    overview: overviewMarkdown ? (marked.parse(overviewMarkdown) as string) : undefined,
+    overview: overviewMarkdown ? parseFragment(overviewMarkdown, tokens.links) : undefined,
     meta: frontMatter.raw,
     root,
   };
