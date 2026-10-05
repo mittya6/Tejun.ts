@@ -228,6 +228,38 @@ title: "テスト"
     });
   });
 
+  describe('参照リンク', () => {
+    const md = `# タイトル
+
+## 手順
+
+[表示テキスト][label]
+
+![画像][ebi.test]
+
+> **期待値**
+> [引用内][label]
+
+## 後片付け
+
+[label]: ./test.html
+[ebi.test]: ./1.image.webp "サンプル"
+`;
+
+    it('本文中の参照リンク・参照画像が文書末尾の定義で解決される', () => {
+      const doc = parseMarkdown(md);
+      const [step] = nodesOf(doc.root, '##');
+      expect(step.body).toContain('<a href="./test.html">表示テキスト</a>');
+      expect(step.body).toContain('<img src="./1.image.webp" alt="画像" title="サンプル">');
+    });
+
+    it('引用中の参照リンクが解決される', () => {
+      const doc = parseMarkdown(md);
+      const [quote] = nodesOf(doc.root, '>');
+      expect(quote.content).toContain('<a href="./test.html">引用内</a>');
+    });
+  });
+
   describe('異常系', () => {
     it('H1タイトルがない場合は ParseError をスローする', () => {
       const md = `## カテゴリ\n### 手順\n本文`;
