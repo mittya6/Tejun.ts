@@ -26,7 +26,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 /* ── 大項目（H2ごとにグループ化。見出しは1回だけ表示） ── */
 .category{margin-bottom:var(--space-xl)}
-.category img{max-width:100%;height:auto}
+.category img{max-width:66.67%;height:auto}
 .category-title{font-size:1.3rem;font-weight:800;border-bottom:2px solid var(--ink);
   padding-bottom:var(--space-xs);margin-bottom:var(--space-lg)}
 .category-body{margin-bottom:var(--space-lg)}
@@ -72,6 +72,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .md-content strong{font-weight:600}
 .step-img{max-width:100%;max-height:320px;object-fit:contain;
   border:1px solid var(--border);margin-top:var(--space-sm);display:block}
+
+/* ── 画像の拡大表示（クリックで画面中央に拡大し、画像または背景をもう一度クリックで閉じる。JS不使用） ── */
+.img-zoom{cursor:zoom-in}
+.img-zoom:has(:checked){cursor:zoom-out}
+.img-zoom:has(:checked)::before{content:"";position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.7);animation:img-zoom-fade .25s ease-out}
+.img-zoom:has(:checked) img{position:fixed;top:50%;left:50%;z-index:101;
+  width:auto;height:auto;max-width:90vw;max-height:90vh;margin:0;border:none;
+  transform:translate(-50%,-50%);box-shadow:0 8px 32px rgba(0,0,0,.4);
+  animation:img-zoom-in .25s ease-out}
+@keyframes img-zoom-fade{from{opacity:0}}
+@keyframes img-zoom-in{from{opacity:0;transform:translate(-50%,-50%) scale(.85)}}
 
 /* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
 .category,.step{scroll-margin-top:var(--space-lg)}

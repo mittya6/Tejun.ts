@@ -5,6 +5,7 @@ import {
   readImageAsDataUri,
   readImageBuffer,
   resolveImagePath,
+  wrapImagesForZoom,
 } from './imageUtils';
 
 vi.mock('fs', () => ({
@@ -14,6 +15,20 @@ vi.mock('fs', () => ({
     },
   },
 }));
+
+describe('wrapImagesForZoom', () => {
+  it('全ての <img> を拡大表示用の <label> とチェックボックスで囲む', () => {
+    const html = '<p><img src="a.png" alt="a">と<IMG src="b.png"></p>';
+    expect(wrapImagesForZoom(html)).toBe(
+      '<p><label class="img-zoom"><input type="checkbox" hidden><img src="a.png" alt="a"></label>' +
+        'と<label class="img-zoom"><input type="checkbox" hidden><IMG src="b.png"></label></p>',
+    );
+  });
+
+  it('<img> が無いHTMLはそのまま返す', () => {
+    expect(wrapImagesForZoom('<p>テキスト</p>')).toBe('<p>テキスト</p>');
+  });
+});
 
 describe('isLocalImagePath', () => {
   it('ローカルの画像パスを true と判定する', () => {
