@@ -77,6 +77,21 @@ export async function embedImagesInHtml(html: string, basePath: string): Promise
 }
 
 /**
+ * HTML文字列中の全ての `<img>` タグを、クリックで拡大表示を切り替えるための `<label>` で囲む
+ *
+ * 非表示のチェックボックスを同じ `<label>` 内に置くことで、JavaScriptを使わずに
+ * テンプレートのCSS（`.img-zoom:has(:checked)`）で拡大表示を実装できるようにする。
+ *
+ * @param html 変換対象のHTML文字列
+ */
+export function wrapImagesForZoom(html: string): string {
+  return html.replace(
+    /<img\b[^>]*>/gi,
+    (img) => `<label class="img-zoom"><input type="checkbox" hidden>${img}</label>`,
+  );
+}
+
+/**
  * 画像ファイルのBufferと拡張子を取得する（Excel埋め込み用）
  * @param imageSrc Markdownに記述された画像パス（相対パス可）
  * @param basePath 解決の基準ディレクトリ
