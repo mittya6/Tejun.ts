@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
+import path from 'path';
 import {
   isLocalImagePath,
   readImageAsDataUri,
@@ -56,6 +57,16 @@ describe('resolveImagePath', () => {
     expect(resolved).toContain('a.png');
     expect(resolved.startsWith('/base/dir') || resolved.includes('base')).toBe(true);
   });
+
+  it('URLエンコードされた日本語パスをデコードして解決する', () => {
+    const resolved = resolveImagePath('./%E7%94%BB%E5%83%8F/%E3%83%86%E3%82%B9%E3%83%88.webp', '/base');
+    expect(resolved).toBe(path.resolve('/base', '画像', 'テスト.webp'));
+  });
+
+  it('デコードできない不正な % を含むパスはそのまま解決する（異常系）', () => {
+    const resolved = resolveImagePath('./100%.png', '/base');
+    expect(resolved).toBe(path.resolve('/base', '100%.png'));
+  });
 });
 
 describe('readImageAsDataUri', () => {
@@ -82,6 +93,12 @@ describe('readImageAsDataUri', () => {
     vi.mocked(fs.promises.readFile).mockResolvedValue(Buffer.from('x'));
     const result = await readImageAsDataUri('./a.svg', '/base');
     expect(result).toMatch(/^data:application\/octet-stream;base64,/);
+  });
+
+  it('URLエンコードされた日本語ファイル名をデコードして読み込む', async () => {
+    vi.mocked(fs.promises.readFile).mockResolvedValue(Buffer.from('x'));
+    await readImageAsDataUri('./%E3%83%86%E3%82%B9%E3%83%88.webp', '/base');
+    expect(fs.promises.readFile).toHaveBeenCalledWith(path.resolve('/base', 'テスト.webp'));
   });
 
   it('ファイル読み込みに失敗した場合は例外を伝播する（異常系）', async () => {

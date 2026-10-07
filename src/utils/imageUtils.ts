@@ -28,7 +28,7 @@ export function isLocalImagePath(src: string): boolean {
  * @param basePath 解決の基準ディレクトリ（入力Markdownファイルのディレクトリ）
  */
 export async function readImageAsDataUri(imageSrc: string, basePath: string): Promise<string> {
-  const resolved = path.resolve(basePath, imageSrc);
+  const resolved = resolveImagePath(imageSrc, basePath);
   const ext = path.extname(resolved).toLowerCase();
   const mimeType = MIME_MAP[ext] ?? 'application/octet-stream';
   const buffer = await fs.promises.readFile(resolved);
@@ -108,7 +108,16 @@ export async function readImageBuffer(
 
 /**
  * 画像パスをベースディレクトリから解決して絶対パスを返す
+ *
+ * Markdownパーサーは画像パスをURLエンコードする（例: `テスト.png` → `%E3%83%86...png`）ため、
+ * デコードしてからファイルシステムのパスとして解決する。デコードできない場合は元のパスを使う。
  */
 export function resolveImagePath(imageSrc: string, basePath: string): string {
-  return path.resolve(basePath, imageSrc);
+  let decoded = imageSrc;
+  try {
+    decoded = decodeURI(imageSrc);
+  } catch {
+    // 不正な `%` を含む場合はエンコードされていないものとして扱う
+  }
+  return path.resolve(basePath, decoded);
 }
