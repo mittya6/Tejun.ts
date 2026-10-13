@@ -1,6 +1,7 @@
 // @ts-check
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
+const sonarjs = require('eslint-plugin-sonarjs');
 
 /** @type {import('eslint').Linter.FlatConfig[]} */
 module.exports = [
@@ -18,12 +19,14 @@ module.exports = [
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
+      sonarjs,
     },
     rules: {
       ...tsPlugin.configs['recommended'].rules,
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-console': 'off',
+      'sonarjs/cognitive-complexity': ['error', 15],
     },
   },
 ];

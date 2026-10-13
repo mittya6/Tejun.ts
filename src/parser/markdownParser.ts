@@ -1,5 +1,5 @@
 import { marked } from 'marked';
-import type { Links, Token } from 'marked';
+import type { Links, Token, Tokens } from 'marked';
 import { ParseError } from '../utils/errors';
 import type { DocNode, HeadingSymbol, ImageRef, NodeSymbol, ProcedureDocument } from './types';
 
@@ -73,6 +73,26 @@ function parseFragment(markdown: string, links: Links): string {
   return marked.parser(lexer.lex(markdown));
 }
 
+/** 画像を探すときに子トークンを再帰探索するトークンの種類 */
+const IMAGE_CONTAINER_TYPES = [
+  'paragraph',
+  'heading',
+  'blockquote',
+  'strong',
+  'em',
+  'link',
+  'list_item',
+];
+
+/**
+ * 画像を探すときにたどる子トークンを返す
+ */
+function childTokens(token: Token): Token[] {
+  if (token.type === 'list') return token.items.flatMap((item: Tokens.ListItem) => item.tokens ?? []);
+  if (IMAGE_CONTAINER_TYPES.includes(token.type) && 'tokens' in token) return token.tokens ?? [];
+  return [];
+}
+
 /**
  * トークンツリーを再帰的に探索して最初の画像トークンを返す
  */
@@ -81,29 +101,8 @@ function findFirstImage(tokens: Token[]): ImageRef | undefined {
     if (token.type === 'image') {
       return { src: token.href, alt: token.text };
     }
-
-    // tokens を持つブロック・インライントークンを再帰探索
-    if (
-      token.type === 'paragraph' ||
-      token.type === 'heading' ||
-      token.type === 'blockquote' ||
-      token.type === 'strong' ||
-      token.type === 'em' ||
-      token.type === 'link' ||
-      token.type === 'list_item'
-    ) {
-      if (token.tokens && token.tokens.length > 0) {
-        const found = findFirstImage(token.tokens);
-        if (found) return found;
-      }
-    }
-
-    if (token.type === 'list') {
-      for (const item of token.items) {
-        const found = findFirstImage(item.tokens ?? []);
-        if (found) return found;
-      }
-    }
+    const found = findFirstImage(childTokens(token));
+    if (found) return found;
   }
   return undefined;
 }
@@ -183,6 +182,54 @@ interface Section {
 }
 
 /**
+ * 見出しトークンから見出しの要素を作り、入れ子 `stack` の適切な親の子として追加する
+ *
+ * @returns 追加した見出し。`stack` の末尾にも積まれる
+ */
+function openSection(stack: Section[], token: Extract<Token, { type: 'heading' }>): Section {
+  while (stack[stack.length - 1].level >= token.depth) stack.pop();
+  const node = appendChild(
+    stack[stack.length - 1].node,
+    '#'.repeat(token.depth) as HeadingSymbol,
+    token.text,
+  );
+  const section: Section = { node, level: token.depth, bodyParts: [], quoteFound: false };
+  stack.push(section);
+  return section;
+}
+
+/**
+ * 見出し以外のブロックトークンを見出し `section` に追加する。最初の引用より前の内容は本文として扱う。
+ */
+function addToSection(section: Section, token: Token, links: Links): void {
+  if (token.type === 'blockquote') {
+    section.quoteFound = true;
+  } else if (!section.quoteFound) {
+    section.bodyParts.push(token.raw.trim());
+  }
+  appendBlocks(section.node, [token], links);
+}
+
+/**
+ * 本文の断片（Markdown）を連結してHTMLに変換する。断片が無ければ空文字。
+ */
+function partsToHtml(parts: string[], links: Links): string {
+  const markdown = parts.join('\n\n');
+  return markdown ? parseFragment(markdown, links) : '';
+}
+
+/**
+ * 今日の日付を `YYYY/MM/DD` 形式で返す
+ */
+function today(): string {
+  return new Date().toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+/**
  * Markdown文字列を解析し、手順書ドキュメントとして構造化して返す
  *
  * 記述ルール:
@@ -214,15 +261,7 @@ export function parseMarkdown(content: string): ProcedureDocument {
   for (const token of tokens) {
     if (token.type === 'heading') {
       if (token.depth === 1) firstH1 ??= token.text;
-      while (stack[stack.length - 1].level >= token.depth) stack.pop();
-      const node = appendChild(
-        stack[stack.length - 1].node,
-        '#'.repeat(token.depth) as HeadingSymbol,
-        token.text,
-      );
-      const section: Section = { node, level: token.depth, bodyParts: [], quoteFound: false };
-      sections.push(section);
-      stack.push(section);
+      sections.push(openSection(stack, token as Extract<Token, { type: 'heading' }>));
       if (token.depth >= 2) enteredSections = true;
       continue;
     }
@@ -230,18 +269,11 @@ export function parseMarkdown(content: string): ProcedureDocument {
     if (token.type === 'space') continue;
     if (!enteredSections) overviewParts.push(token.raw.trim());
 
-    const section = stack[stack.length - 1];
-    if (token.type === 'blockquote') {
-      section.quoteFound = true;
-    } else if (!section.quoteFound) {
-      section.bodyParts.push(token.raw.trim());
-    }
-    appendBlocks(section.node, [token], tokens.links);
+    addToSection(stack[stack.length - 1], token, tokens.links);
   }
 
   for (const section of sections) {
-    const bodyMarkdown = section.bodyParts.join('\n\n');
-    section.node.body = bodyMarkdown ? parseFragment(bodyMarkdown, tokens.links) : '';
+    section.node.body = partsToHtml(section.bodyParts, tokens.links);
   }
 
   const resolvedTitle = frontMatter.title || firstH1;
@@ -251,19 +283,11 @@ export function parseMarkdown(content: string): ProcedureDocument {
     );
   }
 
-  const overviewMarkdown = overviewParts.join('\n\n');
-
   return {
     title: resolvedTitle,
-    date:
-      frontMatter.date ||
-      new Date().toLocaleDateString('ja-JP', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }),
+    date: frontMatter.date || today(),
     update: frontMatter.update,
-    overview: overviewMarkdown ? parseFragment(overviewMarkdown, tokens.links) : undefined,
+    overview: partsToHtml(overviewParts, tokens.links) || undefined,
     meta: frontMatter.raw,
     root,
   };

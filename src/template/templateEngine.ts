@@ -109,6 +109,32 @@ function parseEachSymbol(arg: string, tag: string): NodeSymbol {
 }
 
 /**
+ * 閉じタグと対応しないときのエラーメッセージを返す
+ */
+function mismatchMessage(keyword: 'each' | 'if'): string {
+  return keyword === 'each' ? EACH_MISMATCH_MESSAGE : IF_MISMATCH_MESSAGE;
+}
+
+/**
+ * `{{#each ...}}` / `{{#if ...}}` の開きタグから、子を持つテンプレートの要素を作る
+ *
+ * @param tag 開きタグ全体（エラーメッセージ用）
+ * @throws TemplateError 引数を解釈できない場合
+ */
+function createBlock(
+  keyword: 'each' | 'if',
+  arg: string,
+  tag: string,
+): Extract<TemplateNode, { kind: 'each' | 'if' }> {
+  if (keyword === 'each') {
+    return { kind: 'each', symbol: parseEachSymbol(arg, tag), children: [] };
+  }
+  const expr = parseExpr(arg.trim());
+  if (!expr) throw new TemplateError(`テンプレートの ${tag} の条件は解釈できません。`);
+  return { kind: 'if', expr, children: [] };
+}
+
+/**
  * テンプレート文字列を解析する。解釈できない `{{...}}` は文字列としてそのまま残す。
  *
  * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、または閉じタグと対応しない場合
@@ -133,32 +159,23 @@ function parseTemplate(template: string): TemplateNode[] {
       continue;
     }
 
-    const [, prefix, keyword, arg] = control;
-    const mismatch = keyword === 'each' ? EACH_MISMATCH_MESSAGE : IF_MISMATCH_MESSAGE;
+    const [, prefix, keywordText, arg] = control;
+    const keyword = keywordText as 'each' | 'if';
     if (prefix === '/') {
       if (arg.trim() !== '' || stack[stack.length - 1]?.kind !== keyword) {
-        throw new TemplateError(mismatch);
+        throw new TemplateError(mismatchMessage(keyword));
       }
       stack.pop();
       continue;
     }
 
-    const children: TemplateNode[] = [];
-    if (keyword === 'each') {
-      current().push({ kind: 'each', symbol: parseEachSymbol(arg, match[0]), children });
-      stack.push({ kind: 'each', children });
-    } else {
-      const expr = parseExpr(arg.trim());
-      if (!expr) throw new TemplateError(`テンプレートの ${match[0]} の条件は解釈できません。`);
-      current().push({ kind: 'if', expr, children });
-      stack.push({ kind: 'if', children });
-    }
+    const block = createBlock(keyword, arg, match[0]);
+    current().push(block);
+    stack.push({ kind: block.kind, children: block.children });
   }
 
   if (stack.length > 0) {
-    throw new TemplateError(
-      stack[stack.length - 1].kind === 'each' ? EACH_MISMATCH_MESSAGE : IF_MISMATCH_MESSAGE,
-    );
+    throw new TemplateError(mismatchMessage(stack[stack.length - 1].kind));
   }
   if (lastIndex < template.length) root.push({ kind: 'text', text: template.slice(lastIndex) });
   return root;
@@ -185,6 +202,16 @@ function findInScope(chain: DocNode[], symbol: NodeSymbol): DocNode[] | undefine
 }
 
 /**
+ * `meta.キー名` の値を返す。値が無ければ空文字。
+ */
+function evaluateMeta(key: string, ctx: TemplateContext): string {
+  if (key === 'title') return ctx.title;
+  if (key === 'date') return ctx.date;
+  if (key === 'update') return ctx.update ?? '';
+  return ctx.meta[key] ?? '';
+}
+
+/**
  * 式を評価する。参照先の要素が無ければ空文字。
  *
  * @param prevChain 前の行の経路（Excelの行ループのみ。`first` の判定に使う）
@@ -195,12 +222,7 @@ function evaluate(
   ctx: TemplateContext,
   prevChain?: DocNode[],
 ): Value {
-  if (expr.kind === 'meta') {
-    if (expr.key === 'title') return { text: ctx.title, isHtml: false };
-    if (expr.key === 'date') return { text: ctx.date, isHtml: false };
-    if (expr.key === 'update') return { text: ctx.update ?? '', isHtml: false };
-    return { text: ctx.meta[expr.key] ?? '', isHtml: false };
-  }
+  if (expr.kind === 'meta') return { text: evaluateMeta(expr.key, ctx), isHtml: false };
   if (expr.kind === 'rootBody') return { text: ctx.root.body ?? '', isHtml: true };
 
   let found: DocNode[] | undefined = chain;

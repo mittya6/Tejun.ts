@@ -22,6 +22,31 @@ export function isGlobPattern(arg: string): boolean {
 }
 
 /**
+ * ワイルドカードに一致するMarkdownファイルを名前順で返す
+ *
+ * @param arg ワイルドカードを含む入力ファイル指定
+ * @returns 一致したMarkdownファイルのパス一覧
+ * @throws ParseError 一致するMarkdownファイルが1つもない場合
+ */
+async function expandGlob(arg: string): Promise<string[]> {
+  // Windowsのパス区切り（\）はglobではエスケープ文字になるため / に揃える
+  const pattern = process.platform === 'win32' ? arg.replace(/\\/g, '/') : arg;
+  const exclude = pattern.split('/').includes(EXCLUDED_DIR)
+    ? undefined
+    : (file: string): boolean => path.basename(file) === EXCLUDED_DIR;
+  const matched: string[] = [];
+  for await (const file of fs.promises.glob(pattern, { exclude })) {
+    if (MARKDOWN_EXTS.includes(path.extname(file).toLowerCase())) {
+      matched.push(file);
+    }
+  }
+  if (matched.length === 0) {
+    throw new ParseError(`指定に一致するMarkdownファイルがありません: ${arg}`);
+  }
+  return matched.sort();
+}
+
+/**
  * 入力ファイル指定（ファイルパスまたはワイルドカード）を展開して、変換対象のファイルパス一覧を返す
  *
  * ワイルドカードを含まない指定はそのまま返す（存在確認は変換時に行う）。
@@ -36,25 +61,11 @@ export function isGlobPattern(arg: string): boolean {
 export async function expandInputFiles(args: string[]): Promise<string[]> {
   const files: string[] = [];
   for (const arg of args) {
-    if (!isGlobPattern(arg)) {
+    if (isGlobPattern(arg)) {
+      files.push(...(await expandGlob(arg)));
+    } else {
       files.push(arg);
-      continue;
     }
-    // Windowsのパス区切り（\）はglobではエスケープ文字になるため / に揃える
-    const pattern = process.platform === 'win32' ? arg.replace(/\\/g, '/') : arg;
-    const exclude = pattern.split('/').includes(EXCLUDED_DIR)
-      ? undefined
-      : (file: string): boolean => path.basename(file) === EXCLUDED_DIR;
-    const matched: string[] = [];
-    for await (const file of fs.promises.glob(pattern, { exclude })) {
-      if (MARKDOWN_EXTS.includes(path.extname(file).toLowerCase())) {
-        matched.push(file);
-      }
-    }
-    if (matched.length === 0) {
-      throw new ParseError(`指定に一致するMarkdownファイルがありません: ${arg}`);
-    }
-    files.push(...matched.sort());
   }
 
   const seen = new Set<string>();
