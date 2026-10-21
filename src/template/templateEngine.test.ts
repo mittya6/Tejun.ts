@@ -3,6 +3,7 @@ import {
   renderTemplate,
   stripHtml,
   replaceCellVariables,
+  renderCell,
   extractRowLoop,
   expandLoopChains,
 } from './templateEngine';
@@ -266,6 +267,49 @@ describe('renderTemplate', () => {
     it('{{#if}} の条件が解釈できない場合は TemplateError をスローする', () => {
       expect(() => renderTemplate('{{#if h1}}x{{/if}}', SAMPLE_CTX)).toThrow(TemplateError);
     });
+  });
+});
+
+describe('renderCell', () => {
+  const md = `# 見出し
+
+## 手順
+
+本文 ![本文の画像](./body.png)
+
+- 項目 ![リストの画像](./list.webp)
+
+> 結果
+> ![引用の画像](./quote.gif)
+`;
+
+  it('置換したテキストと、置換したHTMLに含まれていた画像の src を出現順に返す', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}\n{{>}}', ctx, chain).images).toEqual([
+      './body.png',
+      './list.webp',
+      './quote.gif',
+    ]);
+  });
+
+  it('置換したテキストには画像を含めない', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{>}}', ctx, chain).text).toBe('結果');
+  });
+
+  it('セル内のループや条件の中の画像も返す', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    const tpl = '{{#each - steps}}{{-}}{{/each}}{{#if >}}{{>}}{{/if}}';
+    expect(renderCell(tpl, ctx, chain).images).toEqual(['./list.webp', './quote.gif']);
+  });
+
+  it('画像を含まない変数（見出しなど）では空配列を返す', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{#}} {{##}}', ctx, chain)).toEqual({ text: '見出し 手順', images: [] });
   });
 });
 

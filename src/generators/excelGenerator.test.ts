@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import ExcelJS from 'exceljs';
+import sharp from 'sharp';
 import { generateExcel } from './excelGenerator';
 import { GeneratorError } from '../utils/errors';
 import { parseMarkdown } from '../parser/markdownParser';
@@ -224,24 +225,85 @@ describe('generateExcel', () => {
     expect(ws.getRow(2).height).toBe(55);
   });
 
-  it('ローカル画像を埋め込む', async () => {
-    const imagePath = path.join(tmpDir, 'screen.png');
-    await fs.promises.writeFile(imagePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+  describe('画像の貼り付け', () => {
+    const IMAGE_MD = `# ログイン手順
 
-    const docWithImage = parseMarkdown(`# ログイン手順
+## 手順1
 
-## カテゴリA
+操作 ![本文](./body.png)
 
-### 手順1
+- 項目 ![リスト](./list.webp)
 
-> ![スクリーンショット](./screen.png)
-`);
+> 結果
+> ![引用1](./quote.png)
+> ![引用2](./quote.png)
+`;
 
-    const outPath = await generateExcel(docWithImage, inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
-    expect(ws.getImages().length).toBeGreaterThan(0);
+    /** 本文・リスト・引用の画像を書き出す */
+    async function writeImages(): Promise<void> {
+      const create = { width: 200, height: 100, channels: 3 as const, background: '#f00' };
+      await sharp({ create }).png().toFile(path.join(tmpDir, 'body.png'));
+      await sharp({ create }).webp().toFile(path.join(tmpDir, 'list.webp'));
+      await fs.promises.writeFile(
+        path.join(tmpDir, 'quote.png'),
+        Buffer.from(TINY_PNG_BASE64, 'base64'),
+      );
+    }
+
+    /** 列（1始まり）ごとに、貼り付けられた画像を上から順に返す */
+    function imagesInColumn(ws: ExcelJS.Worksheet, col: number) {
+      return ws
+        .getImages()
+        .filter((image) => image.range.tl.nativeCol === col - 1)
+        .sort((a, b) => a.range.tl.nativeRowOff - b.range.tl.nativeRowOff);
+    }
+
+    it('画像を含む変数を書いたセルに、文章の下へ縦に並べて貼り付ける', async () => {
+      await writeImages();
+      const outPath = await generateExcel(parseMarkdown(IMAGE_MD), inputFile, outputDir);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(outPath);
+      const ws = wb.worksheets[0];
+
+      // 既定テンプレート: D列 `{{##}}\n{{##.body}}`（本文・リスト）、E列 `{{##.>}}`（引用）
+      const bodyImages = imagesInColumn(ws, 4);
+      const quoteImages = imagesInColumn(ws, 5);
+      expect(bodyImages).toHaveLength(2);
+      expect(quoteImages).toHaveLength(2);
+      for (const image of [...bodyImages, ...quoteImages]) {
+        expect(image.range.tl.nativeRow).toBe(3);
+        expect(image.range).toHaveProperty('editAs', 'oneCell');
+      }
+      // 文章の下から始まり、上の画像と重ならない
+      expect(bodyImages[0].range.tl.nativeRowOff).toBeGreaterThan(0);
+      const [first, second] = quoteImages;
+      expect(second.range.tl.nativeRowOff).toBeGreaterThan(first.range.tl.nativeRowOff);
+      // 画像が収まるよう行の高さが広がる
+      expect(ws.getRow(4).height).toBeGreaterThan(100 * 0.75);
+    });
+
+    it('WebPはPNGに変換し、同じ画像は一度だけ読み込む', async () => {
+      await writeImages();
+      const outPath = await generateExcel(parseMarkdown(IMAGE_MD), inputFile, outputDir);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(outPath);
+
+      const media = wb.model.media as Array<{ extension: string }>;
+      // body.png・list.webp（PNGに変換）・quote.png（2回使うが1つ）の3つ
+      expect(media.map((m) => m.extension)).toEqual(['png', 'png', 'png']);
+    });
+
+    it('読み込めない画像は警告を出してスキップし、生成は続ける', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n> ![無い](./missing.png)\n');
+      const outPath = await generateExcel(doc, inputFile, outputDir);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(outPath);
+
+      expect(wb.worksheets[0].getImages()).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('./missing.png'));
+      warn.mockRestore();
+    });
   });
 
   it('デフォルトテンプレートの結合セルが出力後も維持される', async () => {

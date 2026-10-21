@@ -1,7 +1,7 @@
 import { marked } from 'marked';
-import type { Links, Token, Tokens } from 'marked';
+import type { Links, Token } from 'marked';
 import { ParseError } from '../utils/errors';
-import type { DocNode, HeadingSymbol, ImageRef, NodeSymbol, ProcedureDocument } from './types';
+import type { DocNode, HeadingSymbol, NodeSymbol, ProcedureDocument } from './types';
 
 /** 期待値ヘッダー行にマッチする正規表現（**期待値** または 期待値） */
 const EXPECTED_HEADER_RE = /^\*{0,2}期待値\*{0,2}\s*$/;
@@ -73,52 +73,15 @@ function parseFragment(markdown: string, links: Links): string {
   return marked.parser(lexer.lex(markdown));
 }
 
-/** 画像を探すときに子トークンを再帰探索するトークンの種類 */
-const IMAGE_CONTAINER_TYPES = [
-  'paragraph',
-  'heading',
-  'blockquote',
-  'strong',
-  'em',
-  'link',
-  'list_item',
-];
-
 /**
- * 画像を探すときにたどる子トークンを返す
- */
-function childTokens(token: Token): Token[] {
-  if (token.type === 'list') return token.items.flatMap((item: Tokens.ListItem) => item.tokens ?? []);
-  if (IMAGE_CONTAINER_TYPES.includes(token.type) && 'tokens' in token) return token.tokens ?? [];
-  return [];
-}
-
-/**
- * トークンツリーを再帰的に探索して最初の画像トークンを返す
- */
-function findFirstImage(tokens: Token[]): ImageRef | undefined {
-  for (const token of tokens) {
-    if (token.type === 'image') {
-      return { src: token.href, alt: token.text };
-    }
-    const found = findFirstImage(childTokens(token));
-    if (found) return found;
-  }
-  return undefined;
-}
-
-/**
- * blockquoteトークンから引用の内容のHTMLと最初の画像を取り出す
+ * blockquoteトークンから引用の内容のHTMLを取り出す
  *
- * 先頭などにある「期待値」ヘッダー行は取り除く。画像は元の記述順のままHTMLに残す。
+ * 先頭などにある「期待値」ヘッダー行は取り除く。
  */
 function processBlockquote(
   blockquoteToken: Extract<Token, { type: 'blockquote' }>,
   links: Links,
-): {
-  html: string;
-  image: ImageRef | undefined;
-} {
+): string {
   // rawテキストから "> " プレフィックスを除去し、期待値ヘッダー行を削除
   const markdown = blockquoteToken.raw
     .split('\n')
@@ -127,10 +90,7 @@ function processBlockquote(
     .join('\n')
     .trim();
 
-  return {
-    html: markdown ? parseFragment(markdown, links) : '',
-    image: findFirstImage(blockquoteToken.tokens),
-  };
+  return markdown ? parseFragment(markdown, links) : '';
 }
 
 /**
@@ -154,12 +114,8 @@ function appendChild(parent: DocNode, symbol: NodeSymbol, content: string): DocN
 function appendBlocks(parent: DocNode, tokens: Token[], links: Links): void {
   for (const token of tokens) {
     if (token.type === 'blockquote') {
-      const { html, image } = processBlockquote(
-        token as Extract<Token, { type: 'blockquote' }>,
-        links,
-      );
+      const html = processBlockquote(token as Extract<Token, { type: 'blockquote' }>, links);
       const node = appendChild(parent, '>', html);
-      if (image) node.image = image;
       appendBlocks(node, token.tokens ?? [], links);
     } else if (token.type === 'list') {
       for (const item of token.items) {

@@ -1,5 +1,6 @@
 import { TemplateError } from '../utils/errors';
 import { findNodePaths } from '../parser/docTree';
+import { extractImageSrcs } from '../utils/imageUtils';
 import type { DocNode, NodeSymbol, TemplateContext } from '../parser/types';
 
 /** HTMLエスケープ対象文字 */
@@ -244,6 +245,7 @@ function evaluate(
  *
  * @param chain ルートからカレント要素までの経路（ループの外側ではルートのみ）
  * @param prevChain 前の行の経路（Excelの行ループのみ）
+ * @param images `text` モードで、展開したHTMLに含まれる画像の `src` を出現順に追加する配列
  */
 function renderNodes(
   nodes: TemplateNode[],
@@ -251,6 +253,7 @@ function renderNodes(
   ctx: TemplateContext,
   mode: OutputMode,
   prevChain?: DocNode[],
+  images?: string[],
 ): string {
   return nodes
     .map((node) => {
@@ -260,15 +263,19 @@ function renderNodes(
         case 'var': {
           const value = evaluate(node.expr, chain, ctx, prevChain);
           if (mode === 'html') return value.isHtml ? value.text : escapeHtml(value.text);
-          return value.isHtml ? stripHtml(value.text) : value.text;
+          if (!value.isHtml) return value.text;
+          images?.push(...extractImageSrcs(value.text));
+          return stripHtml(value.text);
         }
         case 'if':
           return evaluate(node.expr, chain, ctx, prevChain).text.trim()
-            ? renderNodes(node.children, chain, ctx, mode, prevChain)
+            ? renderNodes(node.children, chain, ctx, mode, prevChain, images)
             : '';
         case 'each':
           return findNodePaths(chain[chain.length - 1], node.symbol)
-            .map((path) => renderNodes(node.children, [...chain, ...path], ctx, mode, prevChain))
+            .map((path) =>
+              renderNodes(node.children, [...chain, ...path], ctx, mode, prevChain, images),
+            )
             .join('');
       }
     })
@@ -329,6 +336,27 @@ export function replaceCellVariables(
   prevChain?: DocNode[],
 ): string {
   return renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain);
+}
+
+/**
+ * Excelテンプレート用: `replaceCellVariables` と同じくセル値の変数を置換し、
+ * 置換したHTMLに含まれていた画像の `src` も出現順に返す
+ *
+ * @param cellValue セルのテキスト値
+ * @param ctx ドキュメント全体のコンテキスト
+ * @param chain ルートからカレント要素までの経路（行ループの行では、その行の要素まで）
+ * @param prevChain 行ループの前の行の経路（最初の行では省略）
+ * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、またはセル内で閉じタグと対応しない場合
+ */
+export function renderCell(
+  cellValue: string,
+  ctx: TemplateContext,
+  chain: DocNode[],
+  prevChain?: DocNode[],
+): { text: string; images: string[] } {
+  const images: string[] = [];
+  const text = renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain, images);
+  return { text, images };
 }
 
 /**

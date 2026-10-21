@@ -204,7 +204,7 @@ title: "テスト"
   });
 
   describe('画像の抽出', () => {
-    it('引用内の画像を image として抽出し、HTMLには元の位置のまま残す', () => {
+    it('引用内の画像はHTMLに元の位置のまま残す', () => {
       const md = `# テスト
 
 ## カテゴリ
@@ -218,13 +218,7 @@ title: "テスト"
 `;
       const doc = parseMarkdown(md);
       const [quote] = nodesOf(doc.root, '>');
-      expect(quote.image).toEqual({ src: './images/screen.png', alt: 'スクリーンショット' });
       expect(quote.content).toContain('<img src="./images/screen.png"');
-    });
-
-    it('画像の無い引用では image が undefined になる', () => {
-      const doc = parseMarkdown(SAMPLE_MD);
-      expect(nodesOf(doc.root, '>')[0].image).toBeUndefined();
     });
   });
 

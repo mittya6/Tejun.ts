@@ -77,6 +77,16 @@ export async function embedImagesInHtml(html: string, basePath: string): Promise
 }
 
 /**
+ * HTML文字列中の `<img>` タグの `src` を出現順に返す（`&amp;` は `&` に戻す）
+ *
+ * @param html 対象のHTML文字列
+ */
+export function extractImageSrcs(html: string): string[] {
+  const imgSrcRe = new RegExp(IMG_SRC_PATTERN.source, 'gi');
+  return [...html.matchAll(imgSrcRe)].map((match) => match[2].replace(/&amp;/g, '&'));
+}
+
+/**
  * HTML文字列中の全ての `<img>` タグを、クリックで拡大表示を切り替えるための `<label>` で囲む
  *
  * 非表示のチェックボックスを同じ `<label>` 内に置くことで、JavaScriptを使わずに

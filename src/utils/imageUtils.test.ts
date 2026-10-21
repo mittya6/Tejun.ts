@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
+  extractImageSrcs,
   isLocalImagePath,
   readImageAsDataUri,
   readImageBuffer,
@@ -28,6 +29,17 @@ describe('wrapImagesForZoom', () => {
 
   it('<img> が無いHTMLはそのまま返す', () => {
     expect(wrapImagesForZoom('<p>テキスト</p>')).toBe('<p>テキスト</p>');
+  });
+});
+
+describe('extractImageSrcs', () => {
+  it('<img> の src を出現順に返し、&amp; を & に戻す', () => {
+    const html = '<p><img src="./a.png" alt="a">と<IMG alt="b" src="./b&amp;c.webp"></p>';
+    expect(extractImageSrcs(html)).toEqual(['./a.png', './b&c.webp']);
+  });
+
+  it('<img> が無ければ空配列を返す', () => {
+    expect(extractImageSrcs('<p>テキスト</p>')).toEqual([]);
   });
 });
 

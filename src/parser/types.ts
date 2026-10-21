@@ -1,11 +1,3 @@
-/** 引用内で参照される画像情報 */
-export interface ImageRef {
-  /** ファイルパスまたはData URI */
-  src: string;
-  /** 代替テキスト */
-  alt: string;
-}
-
 /** 見出しを表すMarkdownの文頭記号 */
 export type HeadingSymbol = '#' | '##' | '###' | '####' | '#####' | '######';
 
@@ -37,8 +29,6 @@ export interface DocNode {
    * 1始まりの連番。同じ親の中での同じ種類の要素の連番（見出しも親の見出しが変わると1に戻る）
    */
   index: number;
-  /** 引用のみ: 引用内で最初に見つかった画像 */
-  image?: ImageRef;
   /** 子要素（文書順） */
   children: DocNode[];
 }

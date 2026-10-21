@@ -1,63 +1,128 @@
 import fs from 'fs';
 import path from 'path';
 import ExcelJS from 'exceljs';
+import sharp from 'sharp';
 import { GeneratorError } from '../utils/errors';
-import { expandLoopChains, extractRowLoop, replaceCellVariables } from '../template/templateEngine';
+import {
+  expandLoopChains,
+  extractRowLoop,
+  renderCell,
+  replaceCellVariables,
+} from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
-import type {
-  DocNode,
-  ImageRef,
-  NodeSymbol,
-  ProcedureDocument,
-  TemplateContext,
-} from '../parser/types';
+import { columnWidthPx, estimateTextHeightPx, layoutImages } from './excelImageLayout';
+import type { ImageSize } from './excelImageLayout';
+import type { NodeSymbol, ProcedureDocument, TemplateContext } from '../parser/types';
 
 /** 未指定時に使用するデフォルトExcelテンプレートのパス */
 const DEFAULT_EXCEL_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'default.xlsx');
 
-/** exceljs でサポートされる画像拡張子 */
-const SUPPORTED_IMG_EXTS = new Set(['png', 'jpeg', 'gif']);
+/** 1pxあたりのEMU（Excelの図形の位置の単位） */
+const EMU_PER_PX = 9525;
 
-const IMAGE_ROW_HEIGHT = 100;
+/** ワークブックに追加済みの画像 */
+interface WorkbookImage extends ImageSize {
+  id: number;
+}
+
+/** 行ループの行のうち、画像を含むセル */
+interface CellImages {
+  /** 行番号（1始まり） */
+  row: number;
+  /** 列番号（1始まり） */
+  col: number;
+  /** セルに貼り付ける画像の `src`（出現順） */
+  srcs: string[];
+}
 
 /**
- * 画像ファイルを読み込んでbase64文字列と拡張子を返す
+ * ローカルの画像ファイルを読み込んでワークブックに追加する
  *
- * @returns `{ base64, ext }` exceljs対応の拡張子（'png'|'jpeg'|'gif'）に変換済み
+ * PNG・JPEG・GIFはそのまま、それ以外（WebPなど）はPNGに変換して追加する。
+ *
+ * @returns 追加した画像。ローカルの画像でない、または読み込めない場合は `null`
  */
-async function readImageAsBase64(
-  imageSrc: string,
+async function addWorkbookImage(
+  workbook: ExcelJS.Workbook,
+  src: string,
   basePath: string,
-): Promise<{ base64: string; ext: 'png' | 'jpeg' | 'gif' } | null> {
-  const resolved = resolveImagePath(imageSrc, basePath);
-  const rawExt = path.extname(resolved).slice(1).toLowerCase();
-  const ext = rawExt === 'jpg' ? 'jpeg' : rawExt;
-
-  if (!SUPPORTED_IMG_EXTS.has(ext)) {
-    console.warn(`[Tejun.ts] サポートされていない画像形式のためスキップ: ${imageSrc} (${rawExt})`);
-    return null;
-  }
-
+): Promise<WorkbookImage | null> {
+  if (!isLocalImagePath(src)) return null;
   try {
-    const buffer = await fs.promises.readFile(resolved);
-    return { base64: buffer.toString('base64'), ext: ext as 'png' | 'jpeg' | 'gif' };
+    const input = await fs.promises.readFile(resolveImagePath(src, basePath));
+    const { format, width, height, pageHeight } = await sharp(input).metadata();
+    const passThrough = format === 'png' || format === 'jpeg' || format === 'gif';
+    const id = workbook.addImage(
+      passThrough
+        ? { base64: input.toString('base64'), extension: format }
+        : { base64: (await sharp(input).png().toBuffer()).toString('base64'), extension: 'png' },
+    );
+    // アニメーション画像は1コマ目の高さを使う
+    return { id, width, height: pageHeight ?? height };
   } catch {
-    console.warn(`[Tejun.ts] 画像ファイルを読み込めませんでした: ${imageSrc}`);
+    console.warn(`[Tejun.ts] 画像ファイルを読み込めませんでした: ${src}`);
     return null;
   }
 }
 
 /**
- * Excelのセル範囲文字列（例: "D4:E5"）を生成する
- *
- * @param col0 開始列（0始まり）
- * @param row1 開始行（1始まり）
- * @param col1End 終了列（0始まり、exclusive）
- * @param row1End 終了行（1始まり、exclusive）
+ * セルの文章の下に画像を縦に並べて貼り付け、行の高さを画像が収まるよう広げる
  */
-function cellRange(col0: number, row1: number, col1End: number, row1End: number): string {
-  const colLetter = (c: number) => String.fromCharCode(65 + c);
-  return `${colLetter(col0)}${row1}:${colLetter(col1End)}${row1End}`;
+function placeImagesInCell(
+  ws: ExcelJS.Worksheet,
+  row: number,
+  col: number,
+  images: WorkbookImage[],
+): void {
+  const wsRow = ws.getRow(row);
+  const cell = wsRow.getCell(col);
+  const columnWidth = ws.getColumn(col).width;
+  const textHeight = estimateTextHeightPx(
+    typeof cell.value === 'string' ? cell.value : '',
+    columnWidth,
+    cell.font?.size,
+    cell.alignment?.wrapText,
+  );
+  const layout = layoutImages(images, columnWidthPx(columnWidth), textHeight);
+  wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
+
+  layout.images.forEach((placed, i) => {
+    // exceljsは `nativeCol` などがあればそちらを使う（`col` / `row` の小数ではpx単位のずらし量を指定できない）
+    const tl = {
+      col: col - 1,
+      row: row - 1,
+      nativeCol: col - 1,
+      nativeColOff: placed.x * EMU_PER_PX,
+      nativeRow: row - 1,
+      nativeRowOff: placed.y * EMU_PER_PX,
+    };
+    ws.addImage(images[i].id, {
+      tl,
+      ext: { width: placed.width, height: placed.height },
+      editAs: 'oneCell',
+    });
+  });
+}
+
+/**
+ * 行ループの各セルに、そのセルの変数に含まれていた画像を貼り付ける。同じ画像は一度だけ読み込む。
+ */
+async function embedCellImages(
+  workbook: ExcelJS.Workbook,
+  ws: ExcelJS.Worksheet,
+  cells: CellImages[],
+  basePath: string,
+): Promise<void> {
+  const loaded = new Map<string, Promise<WorkbookImage | null>>();
+  for (const { row, col, srcs } of cells) {
+    const images: WorkbookImage[] = [];
+    for (const src of srcs) {
+      if (!loaded.has(src)) loaded.set(src, addWorkbookImage(workbook, src, basePath));
+      const image = await loaded.get(src);
+      if (image) images.push(image);
+    }
+    if (images.length > 0) placeImagesInCell(ws, row, col, images);
+  }
 }
 
 /**
@@ -149,19 +214,20 @@ async function buildFromTemplate(
   templateWs.spliceRows(templateRowNumber, 1);
 
   const chains = expandLoopChains([ctx.root], rowLoop.symbols);
-  const images = chains.map((chain) => rowImage(chain[chain.length - 1]));
+  const cellImages: CellImages[] = [];
   let insertAt = templateRowNumber;
   chains.forEach((chain, i) => {
     templateWs.spliceRows(insertAt, 0, []);
     const newRow = templateWs.getRow(insertAt);
-    // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる
-    const rowHeight = images[i] ? IMAGE_ROW_HEIGHT : templateRow.height;
-    if (rowHeight !== undefined) newRow.height = rowHeight;
+    // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる（画像を貼り付ける行は後で広げる）
+    if (templateRow.height !== undefined) newRow.height = templateRow.height;
 
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      cell.value = replaceCellVariables(cellDef.value, ctx, chain, chains[i - 1]);
+      const { text, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
+      cell.value = text;
+      if (images.length > 0) cellImages.push({ row: insertAt, col: colNum, srcs: images });
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
       if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;
@@ -174,26 +240,7 @@ async function buildFromTemplate(
 
   const newWs = workbook.addWorksheet(templateWs.name);
   copyWorksheet(templateWs, newWs);
-
-  // 画像埋め込み
-  for (const [i, image] of images.entries()) {
-    if (image && isLocalImagePath(image.src)) {
-      const imgData = await readImageAsBase64(image.src, basePath);
-      if (imgData) {
-        const imageId = workbook.addImage({ base64: imgData.base64, extension: imgData.ext });
-        const r = templateRowNumber + i;
-        newWs.addImage(imageId, cellRange(3, r, 4, r + 1));
-      }
-    }
-  }
-}
-
-/**
- * 行の要素に貼り付ける画像を返す。要素が引用ならその画像、それ以外は直下の最初の引用の画像。
- */
-function rowImage(node: DocNode): ImageRef | undefined {
-  const quote = node.symbol === '>' ? node : node.children.find((c) => c.symbol === '>');
-  return quote?.image;
+  await embedCellImages(workbook, newWs, cellImages, basePath);
 }
 
 /**
