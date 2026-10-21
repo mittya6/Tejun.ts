@@ -57,6 +57,47 @@ interface Value {
 /** 出力形式。`html` はプレーンテキストをHTMLエスケープ、`text` はHTMLのタグを除去する */
 type OutputMode = 'html' | 'text';
 
+/** 展開したテキストの断片 */
+export interface TextSegment {
+  text: string;
+  /** コードブロック（`<pre>`）の内容か */
+  code: boolean;
+}
+
+/** `<pre>` 要素にマッチする正規表現 */
+const PRE_RE = /<pre\b[^>]*>([\s\S]*?)<\/pre>/gi;
+
+/**
+ * コードブロックでないテキストの断片を返す。空文字なら断片なし。
+ */
+function plainSegments(text: string): TextSegment[] {
+  return text ? [{ text, code: false }] : [];
+}
+
+/**
+ * 断片のテキストを連結する
+ */
+function joinSegments(segments: TextSegment[]): string {
+  return segments.map((segment) => segment.text).join('');
+}
+
+/**
+ * 空の断片を取り除き、隣り合う同じ種類の断片をまとめる
+ */
+function mergeSegments(segments: TextSegment[]): TextSegment[] {
+  const merged: TextSegment[] = [];
+  for (const segment of segments) {
+    if (!segment.text) continue;
+    const last = merged[merged.length - 1];
+    if (last?.code === segment.code) {
+      merged[merged.length - 1] = { ...last, text: last.text + segment.text };
+    } else {
+      merged.push(segment);
+    }
+  }
+  return merged;
+}
+
 /**
  * `###.>` / `-.index` のような記号の参照式を解析する
  *
@@ -254,32 +295,32 @@ function renderNodes(
   mode: OutputMode,
   prevChain?: DocNode[],
   images?: string[],
-): string {
-  return nodes
-    .map((node) => {
+): TextSegment[] {
+  return mergeSegments(
+    nodes.flatMap((node): TextSegment[] => {
       switch (node.kind) {
         case 'text':
-          return node.text;
+          return plainSegments(node.text);
         case 'var': {
           const value = evaluate(node.expr, chain, ctx, prevChain);
-          if (mode === 'html') return value.isHtml ? value.text : escapeHtml(value.text);
-          if (!value.isHtml) return value.text;
+          if (mode === 'html') {
+            return plainSegments(value.isHtml ? value.text : escapeHtml(value.text));
+          }
+          if (!value.isHtml) return plainSegments(value.text);
           images?.push(...extractImageSrcs(value.text));
-          return stripHtml(value.text);
+          return htmlToSegments(value.text);
         }
         case 'if':
           return evaluate(node.expr, chain, ctx, prevChain).text.trim()
             ? renderNodes(node.children, chain, ctx, mode, prevChain, images)
-            : '';
+            : [];
         case 'each':
-          return findNodePaths(chain[chain.length - 1], node.symbol)
-            .map((path) =>
-              renderNodes(node.children, [...chain, ...path], ctx, mode, prevChain, images),
-            )
-            .join('');
+          return findNodePaths(chain[chain.length - 1], node.symbol).flatMap((path) =>
+            renderNodes(node.children, [...chain, ...path], ctx, mode, prevChain, images),
+          );
       }
-    })
-    .join('');
+    }),
+  );
 }
 
 /**
@@ -310,7 +351,7 @@ function renderNodes(
  * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、または閉じタグと対応しない場合
  */
 export function renderTemplate(template: string, ctx: TemplateContext): string {
-  return renderNodes(parseTemplate(template), [ctx.root], ctx, 'html')
+  return joinSegments(renderNodes(parseTemplate(template), [ctx.root], ctx, 'html'))
     .replace(/\$\{title\}/g, () => escapeHtml(ctx.title))
     .replace(/\$\{date\}/g, () => escapeHtml(ctx.date))
     .replace(/\$\{update\}/g, () => escapeHtml(ctx.update ?? ''))
@@ -335,12 +376,13 @@ export function replaceCellVariables(
   chain: DocNode[] = [ctx.root],
   prevChain?: DocNode[],
 ): string {
-  return renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain);
+  return joinSegments(renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain));
 }
 
 /**
  * Excelテンプレート用: `replaceCellVariables` と同じくセル値の変数を置換し、
- * 置換したHTMLに含まれていた画像の `src` も出現順に返す
+ * 置換したテキストをコードブロックとそれ以外に分けた断片と、
+ * 置換したHTMLに含まれていた画像の `src`（出現順）も返す
  *
  * @param cellValue セルのテキスト値
  * @param ctx ドキュメント全体のコンテキスト
@@ -353,10 +395,10 @@ export function renderCell(
   ctx: TemplateContext,
   chain: DocNode[],
   prevChain?: DocNode[],
-): { text: string; images: string[] } {
+): { text: string; segments: TextSegment[]; images: string[] } {
   const images: string[] = [];
-  const text = renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain, images);
-  return { text, images };
+  const segments = renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain, images);
+  return { text: joinSegments(segments), segments, images };
 }
 
 /**
@@ -458,11 +500,11 @@ function numberOrderedListItems(html: string): string {
 }
 
 /**
- * HTML文字列からタグを除去してプレーンテキストに変換する。番号付きリストの項目には「1. 」形式の番号を付ける。
+ * HTML文字列からタグを除去してプレーンテキストに変換する（前後の空白は残す）。
  * 画像は、画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
  */
-export function stripHtml(html: string): string {
-  return numberOrderedListItems(html)
+function htmlToText(html: string): string {
+  return html
     .replace(/<img\b[^>]*>\n?/gi, '')
     .replace(/<p>\s*<\/p>\n?/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -473,6 +515,39 @@ export function stripHtml(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .trim();
+    .replace(/&#39;/g, "'");
+}
+
+/**
+ * HTML文字列からタグを除去してプレーンテキストに変換する。番号付きリストの項目には「1. 」形式の番号を付ける。
+ * 画像は、画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
+ */
+export function stripHtml(html: string): string {
+  return htmlToText(numberOrderedListItems(html)).trim();
+}
+
+/**
+ * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）とそれ以外の断片に分ける
+ */
+function htmlToSegments(html: string): TextSegment[] {
+  const numbered = numberOrderedListItems(html);
+  const segments: TextSegment[] = [];
+  let lastIndex = 0;
+  for (const match of numbered.matchAll(PRE_RE)) {
+    segments.push({ text: htmlToText(numbered.slice(lastIndex, match.index)), code: false });
+    segments.push({ text: htmlToText(match[1]), code: true });
+    lastIndex = match.index + match[0].length;
+  }
+  segments.push({ text: htmlToText(numbered.slice(lastIndex)), code: false });
+
+  // `stripHtml` の trim と同じく、全体の前後の空白を取り除く
+  const merged = mergeSegments(segments);
+  while (merged.length > 0 && !merged[0].text.trim()) merged.shift();
+  while (merged.length > 0 && !merged[merged.length - 1].text.trim()) merged.pop();
+  if (merged.length > 0) {
+    const last = merged.length - 1;
+    merged[0] = { ...merged[0], text: merged[0].text.trimStart() };
+    merged[last] = { ...merged[last], text: merged[last].text.trimEnd() };
+  }
+  return merged;
 }

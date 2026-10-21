@@ -309,7 +309,29 @@ describe('renderCell', () => {
   it('画像を含まない変数（見出しなど）では空配列を返す', () => {
     const ctx = ctxFrom(md);
     const [chain] = expandLoopChains([ctx.root], ['##']);
-    expect(renderCell('{{#}} {{##}}', ctx, chain)).toEqual({ text: '見出し 手順', images: [] });
+    expect(renderCell('{{#}} {{##}}', ctx, chain)).toEqual({
+      text: '見出し 手順',
+      segments: [{ text: '見出し 手順', code: false }],
+      images: [],
+    });
+  });
+
+  it('コードブロックの内容を code: true の断片に分ける', () => {
+    const ctx = ctxFrom('# 見出し\n\n## 手順\n\n実行する\n\n```sh\nls -la\ncd /tmp\n```\n\n確認する\n');
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    const { text, segments } = renderCell('{{##}}: {{##.body}}', ctx, chain);
+    expect(segments).toEqual([
+      { text: '手順: 実行する\n\n', code: false },
+      { text: 'ls -la\ncd /tmp\n', code: true },
+      { text: '\n確認する', code: false },
+    ]);
+    expect(text).toBe(replaceCellVariables('{{##}}: {{##.body}}', ctx, chain));
+  });
+
+  it('末尾のコードブロックの後ろの空白は取り除く', () => {
+    const ctx = ctxFrom('# 見出し\n\n## 手順\n\n```\nls\n```\n');
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([{ text: 'ls', code: true }]);
   });
 });
 

@@ -194,6 +194,34 @@ describe('generateExcel', () => {
     expect(ws.getRow(3).getCell(2).value).toBe('手順2');
   });
 
+  it('コードブロックの部分だけ等幅フォント・色付きのリッチテキストにする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-code.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
+    tplWs.getRow(1).getCell(1).font = { size: 9 };
+    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
+
+    const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n実行する\n\n```sh\nls -la\n```\n');
+    const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+    const ws = wb.worksheets[0];
+
+    expect(ws.getRow(1).getCell(1).value).toEqual({
+      richText: [
+        { text: '実行する\n\n', font: { size: 9 } },
+        {
+          text: 'ls -la',
+          font: { size: 9, name: 'Consolas', color: { argb: 'FFC7254E' } },
+        },
+      ],
+    });
+    // コードブロックを含まないセルは文字列のまま
+    expect(ws.getRow(1).getCell(2).value).toBe('手順1');
+  });
+
   it('テンプレートのステップ行に高さが無ければ展開した行の高さも設定しない（Excelの自動調整に任せる）', async () => {
     const templatePath = path.join(tmpDir, 'custom.xlsx');
     await writeCustomTemplate(templatePath);

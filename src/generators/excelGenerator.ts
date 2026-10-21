@@ -12,6 +12,7 @@ import {
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
 import { columnWidthPx, estimateTextHeightPx, layoutImages } from './excelImageLayout';
 import type { ImageSize } from './excelImageLayout';
+import type { TextSegment } from '../template/templateEngine';
 import type { NodeSymbol, ProcedureDocument, TemplateContext } from '../parser/types';
 
 /** 未指定時に使用するデフォルトExcelテンプレートのパス */
@@ -19,6 +20,12 @@ const DEFAULT_EXCEL_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates'
 
 /** 1pxあたりのEMU（Excelの図形の位置の単位） */
 const EMU_PER_PX = 9525;
+
+/** コードブロックの部分に使う等幅フォント */
+const CODE_FONT_NAME = 'Consolas';
+
+/** コードブロックの部分の文字色（ARGB） */
+const CODE_FONT_COLOR = 'FFC7254E';
 
 /** ワークブックに追加済みの画像 */
 interface WorkbookImage extends ImageSize {
@@ -78,7 +85,7 @@ function placeImagesInCell(
   const cell = wsRow.getCell(col);
   const columnWidth = ws.getColumn(col).width;
   const textHeight = estimateTextHeightPx(
-    typeof cell.value === 'string' ? cell.value : '',
+    cellText(cell.value) ?? '',
     columnWidth,
     cell.font?.size,
     cell.alignment?.wrapText,
@@ -136,6 +143,28 @@ function cellText(value: ExcelJS.CellValue): string | undefined {
     return value.richText.map((part) => part.text).join('');
   }
   return undefined;
+}
+
+/**
+ * 行ループのセルの値を作る。コードブロックを含む場合は、その部分だけ等幅フォント・色付きにしたリッチテキストにする。
+ *
+ * @param font テンプレートのセルのフォント。コードブロック以外の部分はこのフォントのまま、
+ *   コードブロックの部分はこれのフォント名と色だけを変える
+ */
+function toCellValue(
+  text: string,
+  segments: TextSegment[],
+  font: Partial<ExcelJS.Font> | undefined,
+): ExcelJS.CellValue {
+  if (!segments.some((segment) => segment.code)) return text;
+  return {
+    richText: segments.map((segment) => ({
+      text: segment.text,
+      font: segment.code
+        ? { ...font, name: CODE_FONT_NAME, color: { argb: CODE_FONT_COLOR } }
+        : font,
+    })),
+  };
 }
 
 /**
@@ -225,8 +254,8 @@ async function buildFromTemplate(
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      const { text, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
-      cell.value = text;
+      const { text, segments, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
+      cell.value = toCellValue(text, segments, cellDef.style.font);
       if (images.length > 0) cellImages.push({ row: insertAt, col: colNum, srcs: images });
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
