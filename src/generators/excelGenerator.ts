@@ -10,7 +10,12 @@ import {
   replaceCellVariables,
 } from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
-import { columnWidthPx, estimateTextHeightPx, layoutImages } from './excelImageLayout';
+import {
+  columnWidthPx,
+  estimateTextHeightPx,
+  layoutImages,
+  textRowHeightPt,
+} from './excelImageLayout';
 import type { ImageSize } from './excelImageLayout';
 import type { TextSegment } from '../template/templateEngine';
 import type { NodeSymbol, ProcedureDocument, TemplateContext } from '../parser/types';
@@ -248,20 +253,33 @@ async function buildFromTemplate(
   chains.forEach((chain, i) => {
     templateWs.spliceRows(insertAt, 0, []);
     const newRow = templateWs.getRow(insertAt);
-    // テンプレート行に高さが無ければ設定せず、Excelの自動調整に任せる（画像を貼り付ける行は後で広げる）
     if (templateRow.height !== undefined) newRow.height = templateRow.height;
 
+    let textHeightPx = 0;
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
       const { text, segments, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
       cell.value = toCellValue(text, segments, cellDef.style.font);
+      textHeightPx = Math.max(
+        textHeightPx,
+        estimateTextHeightPx(
+          text,
+          templateWs.getColumn(colNum).width,
+          cellDef.style.font?.size,
+          cellDef.style.alignment?.wrapText,
+        ),
+      );
       if (images.length > 0) cellImages.push({ row: insertAt, col: colNum, srcs: images });
       if (cellDef.style.font) cell.font = cellDef.style.font;
       if (cellDef.style.fill) cell.fill = cellDef.style.fill;
       if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;
       if (cellDef.style.border) cell.border = cellDef.style.border;
     });
+    // 文章が収まるよう行を広げる（テンプレート行の高さより低くはしない。画像を貼り付ける行は後でさらに広げる）
+    if (textHeightPx > 0) {
+      newRow.height = Math.max(newRow.height ?? 0, textRowHeightPt(textHeightPx));
+    }
 
     newRow.commit();
     insertAt++;

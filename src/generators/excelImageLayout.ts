@@ -80,6 +80,15 @@ export function estimateTextHeightPx(
 }
 
 /**
+ * 文章の高さ（px）から、それが収まる行の高さ（pt）を求める。Excelの行の高さの上限を超えない。
+ *
+ * @param textHeightPx 文章の高さ（px）
+ */
+export function textRowHeightPt(textHeightPx: number): number {
+  return Math.min(MAX_ROW_HEIGHT_PT, textHeightPx / PX_PER_PT);
+}
+
+/**
  * セルの文章の下に画像を縦に並べる位置と大きさ、必要な行の高さを求める
  *
  * 画像は縦横比を保ったまま、幅がセルの幅の80%になるよう拡大・縮小し、セルの横方向の中央に置く。

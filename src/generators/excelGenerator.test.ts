@@ -222,17 +222,24 @@ describe('generateExcel', () => {
     expect(ws.getRow(1).getCell(2).value).toBe('手順1');
   });
 
-  it('テンプレートのステップ行に高さが無ければ展開した行の高さも設定しない（Excelの自動調整に任せる）', async () => {
-    const templatePath = path.join(tmpDir, 'custom.xlsx');
-    await writeCustomTemplate(templatePath);
+  it('画像が無くても、展開した行の高さを文章の行数に合わせて広げる', async () => {
+    const templatePath = path.join(tmpDir, 'custom-text-height.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}{{###}}';
+    tplWs.getRow(1).getCell(2).value = '{{#each - steps}}・{{-}}\n{{/each}}{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(outPath);
     const ws = wb.worksheets[0];
 
-    expect(ws.getRow(2).height).toBeUndefined();
-    expect(ws.getRow(3).height).toBeUndefined();
+    // 手順1は箇条書き2項目＋末尾の改行で3行、手順2は1行
+    const [multiLine, singleLine] = [ws.getRow(1).height, ws.getRow(2).height];
+    expect(singleLine).toBeGreaterThan(0);
+    expect(multiLine).toBeGreaterThan(singleLine * 2);
+    expect(ws.getImages()).toHaveLength(0);
   });
 
   it('テンプレートのステップ行に高さがあれば展開した行にも同じ高さを設定する', async () => {
