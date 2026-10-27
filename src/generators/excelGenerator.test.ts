@@ -328,6 +328,35 @@ describe('generateExcel', () => {
       expect(media.map((m) => m.extension)).toEqual(['png', 'png', 'png']);
     });
 
+    it('行に {{記号.images}} のセルがあれば、その行の画像はそのセルにだけ貼り付ける', async () => {
+      await writeImages();
+      const templatePath = path.join(tmpDir, 'custom-images.xlsx');
+      const tplWb = new ExcelJS.Workbook();
+      const tplWs = tplWb.addWorksheet('テンプレート');
+      tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
+      tplWs.getRow(1).getCell(2).value = '{{##.>}}';
+      tplWs.getRow(1).getCell(3).value = '{{##.images}}{{/each}}';
+      await tplWb.xlsx.writeFile(templatePath);
+
+      const outPath = await generateExcel(
+        parseMarkdown(IMAGE_MD),
+        inputFile,
+        outputDir,
+        templatePath,
+      );
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(outPath);
+      const ws = wb.worksheets[0];
+
+      expect(imagesInColumn(ws, 1)).toHaveLength(0);
+      expect(imagesInColumn(ws, 2)).toHaveLength(0);
+      // 本文・リスト・引用2つ。画像だけのセルは上端（余白4px）から貼り付ける
+      const images = imagesInColumn(ws, 3);
+      expect(images).toHaveLength(4);
+      expect(images[0].range.tl.nativeRowOff).toBe(4 * 9525);
+      expect(ws.getRow(1).getCell(3).value).toBe('');
+    });
+
     it('読み込めない画像は警告を出してスキップし、生成は続ける', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n> ![無い](./missing.png)\n');

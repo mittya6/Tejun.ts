@@ -86,6 +86,19 @@ export function extractImageSrcs(html: string): string[] {
   return [...html.matchAll(imgSrcRe)].map((match) => match[2].replace(/&amp;/g, '&'));
 }
 
+/** 拡大表示用の `<label>`（`wrapImagesForZoom` で付けたもの）ごと `<img>` タグにマッチする正規表現 */
+const IMG_TAG_RE =
+  /(?:<label class="img-zoom"><input type="checkbox" hidden>)?<img\b[^>]*>(?:<\/label>)?/gi;
+
+/**
+ * HTML文字列中の `<img>` タグを出現順に返す（拡大表示用の `<label>` で囲まれていれば `<label>` ごと）
+ *
+ * @param html 対象のHTML文字列
+ */
+export function extractImageTags(html: string): string[] {
+  return html.match(IMG_TAG_RE) ?? [];
+}
+
 /**
  * HTML文字列中の全ての `<img>` タグを、クリックで拡大表示を切り替えるための `<label>` で囲む
  *

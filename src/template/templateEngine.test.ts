@@ -4,6 +4,7 @@ import {
   stripHtml,
   replaceCellVariables,
   renderCell,
+  hasImagesProperty,
   extractRowLoop,
   expandLoopChains,
 } from './templateEngine';
@@ -86,6 +87,13 @@ describe('renderTemplate', () => {
         'テストドキュメント|2026/06/24|2026/06/25|<p>Markdown全文</p>',
       );
       expect(renderTemplate('${overview}', ctx)).toContain('概要の補足です。');
+    });
+
+    it('{{記号.images}} は要素の中の画像の <img> タグだけになる（同じタグは1回）', () => {
+      const ctx = ctxFrom('# 見出し\n\n## 手順\n\n本文 ![本文](./a.png)\n\n- 項目 ![リスト](./b.png)\n');
+      expect(renderTemplate('{{#each ## steps}}{{##.images}}{{/each}}', ctx)).toBe(
+        '<img src="./a.png" alt="本文">\n<img src="./b.png" alt="リスト">',
+      );
     });
 
     it('{{root.body}} は最初の見出しより前の本文のHTMLになる（ループの内側でも同じ）', () => {
@@ -316,6 +324,27 @@ describe('renderCell', () => {
     });
   });
 
+  it('{{記号.images}} は要素の中の画像すべて（本文・リスト・引用）を返し、テキストは空になる', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.images}}', ctx, chain)).toEqual({
+      text: '',
+      segments: [],
+      images: ['./body.png', './list.webp', './quote.gif'],
+    });
+  });
+
+  it('onlyImagesProperty を指定すると {{記号.images}} 以外の変数の画像は返さない', () => {
+    const ctx = ctxFrom(md);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}\n{{>}}', ctx, chain, undefined, true).images).toEqual([]);
+    expect(renderCell('{{>}}{{##.images}}', ctx, chain, undefined, true).images).toEqual([
+      './body.png',
+      './list.webp',
+      './quote.gif',
+    ]);
+  });
+
   it('コードブロックの内容を code: true の断片に分ける', () => {
     const ctx = ctxFrom('# 見出し\n\n## 手順\n\n実行する\n\n```sh\nls -la\ncd /tmp\n```\n\n確認する\n');
     const [chain] = expandLoopChains([ctx.root], ['##']);
@@ -332,6 +361,19 @@ describe('renderCell', () => {
     const ctx = ctxFrom('# 見出し\n\n## 手順\n\n```\nls\n```\n');
     const [chain] = expandLoopChains([ctx.root], ['##']);
     expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([{ text: 'ls', code: true }]);
+  });
+});
+
+describe('hasImagesProperty', () => {
+  it('{{記号.images}} を含むセルなら true（条件やループの中も含む）', () => {
+    expect(hasImagesProperty('{{###.images}}')).toBe(true);
+    expect(hasImagesProperty('{{#if >}}{{###.>.images}}{{/if}}')).toBe(true);
+    expect(hasImagesProperty('{{#each - steps}}{{-.images}}{{/each}}')).toBe(true);
+  });
+
+  it('{{記号.images}} を含まないセルなら false', () => {
+    expect(hasImagesProperty('{{###.body}} images')).toBe(false);
+    expect(hasImagesProperty('')).toBe(false);
   });
 });
 
