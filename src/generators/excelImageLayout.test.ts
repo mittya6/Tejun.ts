@@ -41,7 +41,7 @@ describe('estimateTextHeightPx', () => {
 });
 
 describe('layoutImages', () => {
-  it('文章の下に画像を縦に並べ、行の高さを全体が収まる高さにする', () => {
+  it('文章の下に画像を縦に並べてセルの中央に置き、行の高さを全体が収まる高さにする', () => {
     const { images, rowHeightPt } = layoutImages(
       [
         { width: 100, height: 50 },
@@ -51,15 +51,20 @@ describe('layoutImages', () => {
       20,
     );
     expect(images).toEqual([
-      { x: 4, y: 24, width: 100, height: 50 },
-      { x: 4, y: 78, width: 80, height: 40 },
+      { x: 30, y: 24, width: 240, height: 120 },
+      { x: 30, y: 148, width: 240, height: 120 },
     ]);
-    expect(rowHeightPt).toBeCloseTo(122 / PX_PER_PT);
+    expect(rowHeightPt).toBeCloseTo(272 / PX_PER_PT);
   });
 
-  it('セルの幅を超える画像は縦横比を保って縮小する', () => {
-    const { images } = layoutImages([{ width: 400, height: 200 }], 208, 0);
-    expect(images[0]).toEqual({ x: 4, y: 4, width: 200, height: 100 });
+  it('セルの幅の80%より大きい画像は縦横比を保って縮小し、中央に置く', () => {
+    const { images } = layoutImages([{ width: 400, height: 200 }], 250, 0);
+    expect(images[0]).toEqual({ x: 25, y: 4, width: 200, height: 100 });
+  });
+
+  it('セルの幅の80%より小さい画像は縦横比を保って拡大し、中央に置く', () => {
+    const { images } = layoutImages([{ width: 50, height: 25 }], 250, 0);
+    expect(images[0]).toEqual({ x: 25, y: 4, width: 200, height: 100 });
   });
 
   it('行の高さの上限（409pt）を超える場合は全ての画像を同じ比率で縮小する', () => {

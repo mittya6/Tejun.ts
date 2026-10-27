@@ -28,6 +28,9 @@ const LINE_HEIGHT_RATIO = 1.5;
 /** セルの枠と画像、文章と画像、画像同士の間隔（px） */
 const IMAGE_MARGIN_PX = 4;
 
+/** 画像の幅のセル幅に対する比率 */
+const IMAGE_WIDTH_RATIO = 0.8;
+
 /** 全角文字を判定する文字コードの下限。これ以上の文字は半角2文字分の幅とみなす */
 const WIDE_CHAR_MIN_CODE = 0x100;
 
@@ -79,7 +82,7 @@ export function estimateTextHeightPx(
 /**
  * セルの文章の下に画像を縦に並べる位置と大きさ、必要な行の高さを求める
  *
- * 画像は縦横比を保ったまま、セルの幅に収まるよう縮小する（拡大はしない）。
+ * 画像は縦横比を保ったまま、幅がセルの幅の80%になるよう拡大・縮小し、セルの横方向の中央に置く。
  * 行の高さがExcelの上限を超える場合は、上限に収まるよう全ての画像を同じ比率で縮小する。
  *
  * @param sizes 画像の元の大きさ（並べる順）
@@ -91,9 +94,9 @@ export function layoutImages(
   cellWidthPx: number,
   textHeightPx: number,
 ): { images: PlacedImage[]; rowHeightPt: number } {
-  const maxWidth = cellWidthPx - IMAGE_MARGIN_PX * 2;
+  const targetWidth = cellWidthPx * IMAGE_WIDTH_RATIO;
   const fitted = sizes.map(({ width, height }) => {
-    const scale = Math.min(1, maxWidth / width);
+    const scale = targetWidth / width;
     return { width: width * scale, height: height * scale };
   });
 
@@ -104,10 +107,11 @@ export function layoutImages(
 
   let y = top;
   const images = fitted.map(({ width, height }) => {
+    const placedWidth = Math.round(width * shrink);
     const placed = {
-      x: IMAGE_MARGIN_PX,
+      x: Math.round((cellWidthPx - placedWidth) / 2),
       y: Math.round(y),
-      width: Math.round(width * shrink),
+      width: placedWidth,
       height: Math.round(height * shrink),
     };
     y += placed.height + IMAGE_MARGIN_PX;
