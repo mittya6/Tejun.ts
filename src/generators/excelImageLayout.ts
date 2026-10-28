@@ -26,7 +26,7 @@ const DEFAULT_FONT_SIZE = 11;
 const LINE_HEIGHT_RATIO = 1.5;
 
 /** セルの枠と画像、文章と画像、画像同士の間隔（px） */
-const IMAGE_MARGIN_PX = 4;
+const IMAGE_MARGIN_PX = 8;
 
 /** 画像の幅のセル幅に対する比率 */
 const IMAGE_WIDTH_RATIO = 0.8;

@@ -350,10 +350,10 @@ describe('generateExcel', () => {
 
       expect(imagesInColumn(ws, 1)).toHaveLength(0);
       expect(imagesInColumn(ws, 2)).toHaveLength(0);
-      // 本文・リスト・引用2つ。画像だけのセルは上端（余白4px）から貼り付ける
+      // 本文・リスト・引用2つ。画像だけのセルは上端（余白8px）から貼り付ける
       const images = imagesInColumn(ws, 3);
       expect(images).toHaveLength(4);
-      expect(images[0].range.tl.nativeRowOff).toBe(4 * 9525);
+      expect(images[0].range.tl.nativeRowOff).toBe(8 * 9525);
       expect(ws.getRow(1).getCell(3).value).toBe('');
       // 右下も同じセルの中で指定し、表示スケールで行の高さの見え方が変わってもセルからはみ出さない
       const rowHeightPx = ws.getRow(1).height! / 0.75;
