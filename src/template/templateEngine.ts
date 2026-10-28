@@ -271,16 +271,20 @@ function evaluateMeta(key: string, ctx: TemplateContext): string {
 }
 
 /**
- * 要素の中のHTML（見出し・ルートは本文と子要素、それ以外は要素の内容）を返す
+ * 要素の中のHTML（見出し・ルートは本文と見出し以外の子要素、それ以外は要素の内容）を返す。
+ * 子の見出しの中身は含めない。
  */
 function elementHtmls(node: DocNode): string[] {
   if (node.symbol !== 'root' && !node.symbol.startsWith('#')) return [node.content];
-  return [node.body ?? '', ...node.children.flatMap(elementHtmls)];
+  return [
+    node.body ?? '',
+    ...node.children.filter((child) => !child.symbol.startsWith('#')).flatMap(elementHtmls),
+  ];
 }
 
 /**
  * 要素の中の画像の `<img>` タグを出現順に返す。本文とリストの子要素の両方に含まれる
- * 同じタグは1回だけにする。
+ * 同じタグは1回だけにする。子の見出しの画像は含めない。
  */
 function collectImageTags(node: DocNode): string[] {
   return [...new Set(elementHtmls(node).flatMap(extractImageTags))];
@@ -385,7 +389,7 @@ function renderNodes(
  *   Markdownで最初に出現するその記号の要素になる
  * - `{{記号.記号}}` → 左の要素を起点に右の要素を探す（例: `{{###.>}}` は手順の最初の引用）
  * - `{{記号.body}}` → 見出し直下の最初の引用より前の本文のHTML（エスケープなし）
- * - `{{記号.images}}` → 要素の中（本文・引用・リストなど）の画像の `<img>` タグだけを改行で連結したもの
+ * - `{{記号.images}}` → 要素の中（本文・引用・リストなど）の画像の `<img>` タグだけを改行で連結したもの（子の見出しの画像は含まない）
  * - `{{記号.text}}` / `{{記号.body.text}}` → `{{記号}}` / `{{記号.body}}` のHTMLから画像を取り除いたもの
  * - `{{root.body}}` → 最初の見出しより前（かつ最初の引用より前）の本文のHTML（エスケープなし）
  * - `{{記号.index}}` → 1始まりの連番（同じ親の中での連番。見出しも親の見出しが変わると1に戻る）

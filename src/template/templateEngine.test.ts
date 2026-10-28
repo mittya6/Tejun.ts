@@ -357,6 +357,22 @@ describe('renderCell', () => {
     });
   });
 
+  it('見出しの {{記号.images}} は子の見出しの画像を含めない', () => {
+    const ctx = ctxFrom(`# 見出し
+
+親の本文 ![親の画像](./parent.png)
+
+> 親の結果
+> ![親の引用の画像](./parent-quote.gif)
+
+${md.replace('# 見出し\n\n', '')}`);
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{#.images}}', ctx, chain).images).toEqual([
+      './parent.png',
+      './parent-quote.gif',
+    ]);
+  });
+
   it('{{記号.text}} / {{記号.body.text}} の画像は返さない（テキストは同じ）', () => {
     const ctx = ctxFrom(md);
     const [chain] = expandLoopChains([ctx.root], ['##']);
