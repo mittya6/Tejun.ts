@@ -95,6 +95,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   letter-spacing:.06em;margin-bottom:var(--space-sm)}
 .toc > ol{scroll-target-group:auto}
 .toc ol{list-style:none}
+/* 目次は .page の中にあるため、本文用のリストの余白を打ち消す */
+.toc ol,.toc li{margin:0;padding:0}
 .toc ol ol{margin:var(--space-xs) 0 var(--space-sm)}
 .toc a{display:block;padding:3px var(--space-sm);border-left:2px solid var(--border);
   color:var(--muted);text-decoration:none}
@@ -121,9 +123,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   border-top:1px solid var(--border);font-size:.75rem;color:#999}
 
 @media print{
-  .toc,.toc-toggle{display:none}
+  .toc-toggle{display:none}
   .page{max-width:none;padding:0}
   body{font-size:12px}
+  /* 目次はヘッダーの後に通常の流れで表示する（幅が狭い場合の表示も打ち消す） */
+  .toc,.toc:not(:popover-open){display:block;position:static;width:auto;height:auto;max-height:none;
+    margin-bottom:var(--space-xl);padding:0;background:none;box-shadow:none;overflow:visible}
+  .toc > ol{scroll-target-group:none}
+  /* 大項目（H1）ごとに改ページする */
+  .category{break-before:page}
 }
 </style>
 </head>
@@ -142,6 +150,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 </section>
 {{/if}}
 
+<nav class="toc" id="toc" popover aria-label="目次">
+  <div class="toc-label">目次</div>
+  <ol>
+    {{#each # steps}}
+    <li>
+      <a href="#sec-{{#.index}}">{{#.index}}. {{#}}</a>
+      {{#if ##}}
+      <ol>
+        {{#each ## steps}}
+        <li><a href="#step-{{#.index}}-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
+        {{/each}}
+      </ol>
+      {{/if}}
+    </li>
+    {{/each}}
+  </ol>
+</nav>
+
 
 {{#each # steps}}
 <section class="category" id="sec-{{#.index}}">
@@ -153,7 +179,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   <section class="step" id="step-{{#.index}}-{{##.index}}">
     <div class="step-num">{{#.index}}-{{##.index}}</div>
     <div class="step-head">
-      <div class="step-ttl">{{##}}</div>
+      <h3 class="step-ttl">{{##}}</h3>
     </div>
     <div class="step-body">
       <div class="step-block instruction">
@@ -184,23 +210,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   </svg>
 </button>
 
-<nav class="toc" id="toc" popover aria-label="目次">
-  <div class="toc-label">目次</div>
-  <ol>
-    {{#each # steps}}
-    <li>
-      <a href="#sec-{{#.index}}">{{#.index}}. {{#}}</a>
-      {{#if ##}}
-      <ol>
-        {{#each ## steps}}
-        <li><a href="#step-{{#.index}}-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
-        {{/each}}
-      </ol>
-      {{/if}}
-    </li>
-    {{/each}}
-  </ol>
-</nav>
 <script>
 // 幅が狭い場合に開いた目次は、項目を選んだら閉じる
 document.getElementById('toc').addEventListener('click', function (e) {

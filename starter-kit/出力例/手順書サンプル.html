@@ -26,7 +26,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 /* ── 大項目（H2ごとにグループ化。見出しは1回だけ表示） ── */
 .category{margin-bottom:var(--space-xl)}
-.category img{max-width:100%;height:auto}
+.category img{max-width:66.67%;height:auto}
 .category-title{font-size:1.3rem;font-weight:800;border-bottom:2px solid var(--ink);
   padding-bottom:var(--space-xs);margin-bottom:var(--space-lg)}
 .category-body{margin-bottom:var(--space-lg)}
@@ -73,6 +73,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .step-img{max-width:100%;max-height:320px;object-fit:contain;
   border:1px solid var(--border);margin-top:var(--space-sm);display:block}
 
+/* ── 画像の拡大表示（クリックで画面中央に拡大し、画像または背景をもう一度クリックで閉じる。JS不使用） ── */
+.img-zoom{cursor:zoom-in}
+.img-zoom:has(:checked){cursor:zoom-out}
+.img-zoom:has(:checked)::before{content:"";position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.7);animation:img-zoom-fade .25s ease-out}
+.img-zoom:has(:checked) img{position:fixed;top:50%;left:50%;z-index:101;
+  width:auto;height:auto;max-width:90vw;max-height:90vh;margin:0;border:none;
+  transform:translate(-50%,-50%);box-shadow:0 8px 32px rgba(0,0,0,.4);
+  animation:img-zoom-in .25s ease-out}
+@keyframes img-zoom-fade{from{opacity:0}}
+@keyframes img-zoom-in{from{opacity:0;transform:translate(-50%,-50%) scale(.85)}}
+
 /* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
 .category,.step{scroll-margin-top:var(--space-lg)}
 /* popover属性のブラウザ既定スタイル（中央配置・枠線・背景）を打ち消し、幅が広い場合は常に表示する */
@@ -83,6 +95,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   letter-spacing:.06em;margin-bottom:var(--space-sm)}
 .toc > ol{scroll-target-group:auto}
 .toc ol{list-style:none}
+/* 目次は .page の中にあるため、本文用のリストの余白を打ち消す */
+.toc ol,.toc li{margin:0;padding:0}
 .toc ol ol{margin:var(--space-xs) 0 var(--space-sm)}
 .toc a{display:block;padding:3px var(--space-sm);border-left:2px solid var(--border);
   color:var(--muted);text-decoration:none}
@@ -109,9 +123,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   border-top:1px solid var(--border);font-size:.75rem;color:#999}
 
 @media print{
-  .toc,.toc-toggle{display:none}
+  .toc-toggle{display:none}
   .page{max-width:none;padding:0}
   body{font-size:12px}
+  /* 目次はヘッダーの後に通常の流れで表示する（幅が狭い場合の表示も打ち消す） */
+  .toc,.toc:not(:popover-open){display:block;position:static;width:auto;height:auto;max-height:none;
+    margin-bottom:var(--space-xl);padding:0;background:none;box-shadow:none;overflow:visible}
+  .toc > ol{scroll-target-group:none}
+  /* 大項目（H1）ごとに改ページする */
+  .category{break-before:page}
 }
 </style>
 </head>
@@ -119,7 +139,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 <div class="page">
 
 <header class="doc-header">
-  <div class="doc-title">共有フォルダをネットワークドライブに割り当てる手順 準備</div>
+  <div class="doc-title">共有フォルダをネットワークドライブに割り当てる手順</div>
   <div class="doc-meta">作成日: 2026/09/28</div>
   <div class="doc-meta">更新日: 2026/09/28</div>
 </header>
@@ -147,162 +167,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 -->
 </section>
 
-
-
-
-<section class="category" id="sec-1">
-  <h2 class="category-title">1. 準備</h2>
-  
-  <div class="category-body md-content"><!--
-  ■ 「# 見出し」… 大項目です。手順をいくつかのまとまりに分けるときに使います。
---></div>
-  
-  
-  <section class="step" id="step-1-1">
-    <div class="step-num">1-1</div>
-    <div class="step-head">
-      <div class="step-ttl">共有フォルダの場所を確認する</div>
-    </div>
-    <div class="step-body">
-      <div class="step-block instruction">
-        <div class="step-block-label">操作手順</div>
-        <div class="step-content md-content"><!--
-  ■ 「## 見出し」… 手順です。1つの「##」が Excel の1行になります。
-     見出しは「～する」のように、やることを短く書くのがおすすめです。
-
-  ■ 見出しの直後の文章・番号付きリスト … 操作手順になります。
-     番号付きリストは「1.」「2.」…と書きます。
---><ol>
-<li>管理者から届いたメールを開きます。</li>
-<li>メールに書かれている共有フォルダの場所（例: <code>\\fileserver\share</code>）を控えます。</li>
-</ol>
-</div>
-      </div>
-      
-      <div class="step-block expected">
-        <div class="step-block-label">期待される結果</div>
-        <div class="step-content md-content"><p>共有フォルダの場所（<code>\\</code> から始まる文字列）が手元に控えてあること。</p>
-</div>
-      </div>
-      
-    </div>
-  </section>
-  
-</section>
-
-<section class="category" id="sec-2">
-  <h2 class="category-title">2. ネットワークドライブの割り当て</h2>
-  
-  
-  <section class="step" id="step-2-1">
-    <div class="step-num">2-1</div>
-    <div class="step-head">
-      <div class="step-ttl">コマンドプロンプトを開く</div>
-    </div>
-    <div class="step-body">
-      <div class="step-block instruction">
-        <div class="step-block-label">操作手順</div>
-        <div class="step-content md-content"><ol>
-<li>キーボードの <strong>Windows キー</strong> を押します。</li>
-<li><code>cmd</code> と入力し、<strong>コマンド プロンプト</strong> をクリックします。</li>
-</ol>
-</div>
-      </div>
-      
-      <div class="step-block expected">
-        <div class="step-block-label">期待される結果</div>
-        <div class="step-content md-content"><p>黒い画面（コマンドプロンプト）が開くこと。</p>
-</div>
-      </div>
-      
-    </div>
-  </section>
-  
-  <section class="step" id="step-2-2">
-    <div class="step-num">2-2</div>
-    <div class="step-head">
-      <div class="step-ttl">ドライブを割り当てる</div>
-    </div>
-    <div class="step-body">
-      <div class="step-block instruction">
-        <div class="step-block-label">操作手順</div>
-        <div class="step-content md-content"><ol>
-<li>次のコマンドを入力し、<strong>Enter</strong> キーを押します。<pre><code>net use Z: \\fileserver\share /persistent:yes
-</code></pre>
-</li>
-<li>ユーザー名とパスワードを聞かれた場合は、社内アカウントの情報を入力します。</li>
-</ol>
-<!--
-  ■ コマンドや設定値は「```」で囲むと、コードとして表示されます。
-     番号付きリストの中に書くときは、行頭を半角スペース3つ分さげます。
---></div>
-      </div>
-      
-      <div class="step-block expected">
-        <div class="step-block-label">期待される結果</div>
-        <div class="step-content md-content"><p>「コマンドは正常に終了しました。」と表示されること。</p>
-</div>
-      </div>
-      
-    </div>
-  </section>
-  
-  <section class="step" id="step-2-3">
-    <div class="step-num">2-3</div>
-    <div class="step-head">
-      <div class="step-ttl">エクスプローラーで確認する</div>
-    </div>
-    <div class="step-body">
-      <div class="step-block instruction">
-        <div class="step-block-label">操作手順</div>
-        <div class="step-content md-content"><ol>
-<li>エクスプローラーを開き、左側の <strong>PC</strong> をクリックします。</li>
-<li><strong>Z:</strong> ドライブをダブルクリックします。</li>
-</ol>
-</div>
-      </div>
-      
-      <div class="step-block expected">
-        <div class="step-block-label">期待される結果</div>
-        <div class="step-content md-content"><p>共有フォルダの中身が表示されること。</p>
-<p><img src="data:image/png;base64,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" alt="エクスプローラーの画面"></p>
-</div>
-      </div>
-      
-    </div>
-  </section>
-  
-  <section class="step" id="step-2-4">
-    <div class="step-num">2-4</div>
-    <div class="step-head">
-      <div class="step-ttl">後片付け</div>
-    </div>
-    <div class="step-body">
-      <div class="step-block instruction">
-        <div class="step-block-label">操作手順</div>
-        <div class="step-content md-content"><p>作業が終わったら、コマンドプロンプトを閉じます。</p>
-<!--
-  ■ 期待値（行頭の「＞」）は省略してもかまいません。
---></div>
-      </div>
-      
-    </div>
-  </section>
-  
-</section>
-
-
-<footer class="doc-footer">
-  Generated by Tejun.ts &mdash; 2026/09/28
-</footer>
-
-</div>
-
-<button type="button" class="toc-toggle" popovertarget="toc" aria-label="目次を開く">
-  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-    <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-</button>
 
 <nav class="toc" id="toc" popover aria-label="目次">
   <div class="toc-label">目次</div>
@@ -338,6 +202,163 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     
   </ol>
 </nav>
+
+
+
+<section class="category" id="sec-1">
+  <h2 class="category-title">1. 準備</h2>
+  
+  <div class="category-body md-content"><!--
+  ■ 「# 見出し」… 大項目です。手順をいくつかのまとまりに分けるときに使います。
+--></div>
+  
+  
+  <section class="step" id="step-1-1">
+    <div class="step-num">1-1</div>
+    <div class="step-head">
+      <h3 class="step-ttl">共有フォルダの場所を確認する</h3>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><!--
+  ■ 「## 見出し」… 手順です。1つの「##」が Excel の1行になります。
+     見出しは「～する」のように、やることを短く書くのがおすすめです。
+
+  ■ 見出しの直後の文章・番号付きリスト … 操作手順になります。
+     番号付きリストは「1.」「2.」…と書きます。
+--><ol>
+<li>管理者から届いたメールを開きます。</li>
+<li>メールに書かれている共有フォルダの場所（例: <code>\\fileserver\share</code>）を控えます。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>共有フォルダの場所（<code>\\</code> から始まる文字列）が手元に控えてあること。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+</section>
+
+<section class="category" id="sec-2">
+  <h2 class="category-title">2. ネットワークドライブの割り当て</h2>
+  
+  
+  <section class="step" id="step-2-1">
+    <div class="step-num">2-1</div>
+    <div class="step-head">
+      <h3 class="step-ttl">コマンドプロンプトを開く</h3>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>キーボードの <strong>Windows キー</strong> を押します。</li>
+<li><code>cmd</code> と入力し、<strong>コマンド プロンプト</strong> をクリックします。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>黒い画面（コマンドプロンプト）が開くこと。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-2-2">
+    <div class="step-num">2-2</div>
+    <div class="step-head">
+      <h3 class="step-ttl">ドライブを割り当てる</h3>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>次のコマンドを入力し、<strong>Enter</strong> キーを押します。<pre><code>net use Z: \\fileserver\share /persistent:yes
+</code></pre>
+</li>
+<li>ユーザー名とパスワードを聞かれた場合は、社内アカウントの情報を入力します。</li>
+</ol>
+<!--
+  ■ コマンドや設定値は「```」で囲むと、コードとして表示されます。
+     番号付きリストの中に書くときは、行頭を半角スペース3つ分さげます。
+--></div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>「コマンドは正常に終了しました。」と表示されること。</p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-2-3">
+    <div class="step-num">2-3</div>
+    <div class="step-head">
+      <h3 class="step-ttl">エクスプローラーで確認する</h3>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><ol>
+<li>エクスプローラーを開き、左側の <strong>PC</strong> をクリックします。</li>
+<li><strong>Z:</strong> ドライブをダブルクリックします。</li>
+</ol>
+</div>
+      </div>
+      
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content"><p>共有フォルダの中身が表示されること。</p>
+<p><label class="img-zoom"><input type="checkbox" hidden><img src="data:image/png;base64,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" alt="エクスプローラーの画面"></label></p>
+</div>
+      </div>
+      
+    </div>
+  </section>
+  
+  <section class="step" id="step-2-4">
+    <div class="step-num">2-4</div>
+    <div class="step-head">
+      <h3 class="step-ttl">後片付け</h3>
+    </div>
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-block-label">操作手順</div>
+        <div class="step-content md-content"><p>作業が終わったら、コマンドプロンプトを閉じます。</p>
+<!--
+  ■ 期待値（行頭の「＞」）は省略してもかまいません。
+--></div>
+      </div>
+      
+    </div>
+  </section>
+  
+</section>
+
+
+<footer class="doc-footer">
+  Generated by Tejun.ts &mdash; 2026/09/28
+</footer>
+
+</div>
+
+<button type="button" class="toc-toggle" popovertarget="toc" aria-label="目次を開く">
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+
 <script>
 // 幅が狭い場合に開いた目次は、項目を選んだら閉じる
 document.getElementById('toc').addEventListener('click', function (e) {

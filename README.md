@@ -2,9 +2,9 @@
 
 ![Tejun.ts](./logo/logo.png "Tejun.ts")
 
-**Markdownで書いて、HTMLとExcelで配る。**
+**Markdownで書いて、HTML・Excel・PDFで配る。**
 
-Tejun.ts は、Markdownで書いた手順書を **HTML** と **Excel（.xlsx）** の手順書に変換するツールです。
+Tejun.ts は、Markdownで書いた手順書を **HTML**・**Excel（.xlsx）**・**PDF** の手順書に変換するツールです。
 
 ## こんなこと、ありませんか？
 
@@ -22,10 +22,12 @@ Tejun.ts なら、手順書は **ただのテキスト（Markdown）** として
   画像まで1つのHTMLファイルに埋め込まれます。メールやチャットで送れば、ブラウザでそのまま読めます。目次も付きます。
 - **Excelは作業記録にそのまま使える**
   「チェック・実施日・実行者」の列付きで出力されます。操作手順や期待される結果の画像も、文章の下に貼り付けられます。作業のエビデンスとしてそのまま残せます。
+- **PDFは印刷・配布にそのまま使える**
+  HTMLと同じ見た目のA4のPDFを出力します。ページ番号・しおり・クリックで移動できる目次付きで、大項目ごとに改ページされます。
 - **変更履歴が追える**
   中身はテキストなので、Gitで差分を管理できます。「いつ・誰が・どこを直したか」が一目で分かります。
 - **見た目は自由に変えられる**
-  HTML・Excelそれぞれのテンプレートを差し替えれば、社内の書式に合わせられます。
+  HTML・Excelそれぞれのテンプレートを差し替えれば、社内の書式に合わせられます（PDFはHTMLのテンプレートを使います）。
 
 ## Get Started（5分で体験）
 
@@ -44,10 +46,10 @@ starter-kit/
 ├─ 手順書サンプル.md   … 書き方の説明コメント付きのサンプル
 ├─ images/             … 画像の置き場所
 ├─ 変換.bat            … ダブルクリックで変換
-└─ 出力例/             … サンプルを変換したHTML・Excel
+└─ 出力例/             … サンプルを変換したHTML・Excel・PDF
 ```
 
-先に `出力例/` のHTMLとExcelを開いてみると、完成形のイメージがつかめます。
+先に `出力例/` のHTML・Excel・PDFを開いてみると、完成形のイメージがつかめます。
 
 ### 3. 変換.bat をダブルクリックする
 
@@ -154,17 +156,21 @@ tejun <Markdownファイル...> [オプション]
 
 | オプション | 説明 | 既定値 |
 | --- | --- | --- |
-| `-f, --format <format>` | 出力形式。`html` / `excel` / `both` | `both` |
+| `-f, --format <formats>` | 出力形式。`html` / `excel` / `pdf` をカンマ区切りで指定（例: `html,pdf`） | `html` |
 | `-o, --out <directory>` | 出力先ディレクトリ | `./output` |
 | `-t, --template <file\|name>` | テンプレートファイル（`.html` または `.xlsx`）、またはプリセット名（例: `simple`） | `templates/default.html` / `templates/default.xlsx` |
 | `-n, --name <property>` | 出力ファイル名に使うFront Matterのプロパティ（例: `meta.filename`） | なし（入力ファイル名を使用） |
+| `--browser <path>` | PDF出力に使うブラウザ（Edge / Chrome）の実行ファイルのパス | なし（インストール先を自動で探す） |
 
 ```bash
-# HTMLとExcelの両方を ./output に出力する
+# HTMLを ./output に出力する
 tejun ./procedure.md -o ./output
 
+# HTML・Excel・PDFをまとめて出力する
+tejun ./procedure.md -f html,excel,pdf
+
 # プリセット「simple」のテンプレート（templates/simple.html・templates/simple.xlsx）で出力する
-tejun ./procedure.md -t simple
+tejun ./procedure.md -f html,excel -t simple
 
 # 自作のExcelテンプレートを使ってExcelだけ出力する
 tejun ./procedure.md -f excel -t ./my-template.xlsx -o ./output
@@ -181,10 +187,15 @@ tejun "docs/**/*.md" -o ./output
   - `node_modules` フォルダの中は、パターンに `node_modules` を明示しない限り探索しません。
   - 1つも一致しない場合はエラーになります。
   - 途中のファイルで変換に失敗しても、残りのファイルの変換は続けます。最後に失敗したファイルを表示し、終了コード1で終わります。
-- **出力ファイル名:** 入力ファイル名の拡張子を `.html` / `.xlsx` に変えたものになります。`-n meta.filename` と指定すると、Front Matterの `filename` の値に拡張子を付けたものになります（例: `filename: サーバー構築手順_v1`）。指定したプロパティが未定義・空の場合や、ファイル名に使えない文字（`/ \ : * ? " < > |`）を含む場合はエラーになります。
+- **出力ファイル名:** 入力ファイル名の拡張子を `.html` / `.xlsx` / `.pdf` に変えたものになります。`-n meta.filename` と指定すると、Front Matterの `filename` の値に拡張子を付けたものになります（例: `filename: サーバー構築手順_v1`）。指定したプロパティが未定義・空の場合や、ファイル名に使えない文字（`/ \ : * ? " < > |`）を含む場合はエラーになります。
 - **テンプレートの指定:**
-  - `-f both` で `-t` を指定した場合、テンプレートは拡張子が合う形式にだけ使われます。もう一方の形式は既定のテンプレートで出力されます。
-  - `-t` の値に拡張子もパス区切り（`/` `\`）もない場合は、プリセット名として扱います。プリセットはツールの `templates/` フォルダにある `<名前>.html` / `<名前>.xlsx` で、HTML・Excelの両方にそれぞれのファイルが使われます。出力する形式のファイルがプリセットにない場合はエラーになります。
+  - PDFはHTMLのテンプレート（`.html`）を使います。
+  - 複数の形式を出力するときに `-t` を指定した場合、テンプレートは拡張子が合う形式にだけ使われます。ほかの形式は既定のテンプレートで出力されます。
+  - `-t` の値に拡張子もパス区切り（`/` `\`）もない場合は、プリセット名として扱います。プリセットはツールの `templates/` フォルダにある `<名前>.html` / `<名前>.xlsx` で、HTML・PDFには `.html`、Excelには `.xlsx` のファイルが使われます。出力する形式のファイルがプリセットにない場合はエラーになります。
+- **PDF出力:** PCにインストール済みの Edge または Chrome で印刷してPDFを作ります（ブラウザのダウンロードは行いません）。ブラウザが見つからない場合は、`--browser` で実行ファイルのパスを指定してください。
+  - A4縦で、フッターの中央にページ番号（`1 / 10`）が入ります。見出しからPDFのしおりが作られます。
+  - 見た目はHTMLテンプレートの `@media print` で決まります。既定のテンプレートでは、前書きの後にクリックで移動できる目次（ページ番号なし）が入り、大項目（`#`）ごとに改ページし、手順（`##`）が途中で切れないようにします（1ページに収まらない手順は途中で改ページされます）。
+  - テンプレート内のJavaScriptは実行されません。
 
 ### テンプレートで見た目を変える
 
@@ -209,7 +220,7 @@ npm run format:check  # Prettierのチェック
 | --- | --- |
 | `src/parser/` | Markdownの解析 |
 | `src/template/` | テンプレート変数の置き換え |
-| `src/generators/` | HTML・Excelの生成 |
+| `src/generators/` | HTML・Excel・PDFの生成 |
 | `src/commands/` | CLIコマンドの処理 |
 | `templates/` | 既定のテンプレート |
 | `examples/` | サンプルの手順書と出力例 |

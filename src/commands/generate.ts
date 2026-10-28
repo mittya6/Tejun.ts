@@ -4,15 +4,51 @@ import { parseMarkdown } from '../parser/markdownParser';
 import { findNodePaths } from '../parser/docTree';
 import { generateHtml } from '../generators/htmlGenerator';
 import { generateExcel } from '../generators/excelGenerator';
+import { generatePdf } from '../generators/pdfGenerator';
 import { ParseError, GeneratorError } from '../utils/errors';
+
+/** 出力形式 */
+export type OutputFormat = 'html' | 'excel' | 'pdf';
+
+/** 指定できる出力形式 */
+const OUTPUT_FORMATS: readonly string[] = ['html', 'excel', 'pdf'] satisfies OutputFormat[];
 
 /** generate コマンドに渡されるオプション */
 export interface GenerateOptions {
-  format: 'html' | 'excel' | 'both';
+  format: OutputFormat[];
   out: string;
   template?: string;
   /** 出力ファイル名に使うFront Matterのプロパティ（例: `meta.filename`） */
   name?: string;
+  /** PDF出力に使うブラウザ（Edge / Chrome）の実行ファイルのパス */
+  browser?: string;
+}
+
+/**
+ * 値が出力形式かどうかを判定する
+ *
+ * @param value 判定する文字列
+ * @returns 出力形式なら true
+ */
+function isOutputFormat(value: string): value is OutputFormat {
+  return OUTPUT_FORMATS.includes(value);
+}
+
+/**
+ * `--format` の値（カンマ区切り）を出力形式の一覧に変換する
+ *
+ * @param value `--format` に指定された値（例: `html,pdf`）
+ * @returns 重複を除いた出力形式の一覧
+ * @throws ParseError 未知の形式を含む場合
+ */
+export function parseFormats(value: string): OutputFormat[] {
+  const formats = value.split(',').map((f) => f.trim().toLowerCase());
+  if (!formats.every(isOutputFormat)) {
+    throw new ParseError(
+      `--format には ${OUTPUT_FORMATS.join(' / ')} をカンマ区切りで指定してください（例: html,pdf）: ${value}`,
+    );
+  }
+  return [...new Set(formats)];
 }
 
 /** `--name` で指定するプロパティの接頭辞 */
@@ -54,6 +90,7 @@ const PATH_SEPARATOR = /[/\\]/;
 
 /** 出力形式ごとに使うテンプレートファイルのパス（未定義なら既定テンプレート） */
 export interface TemplatePaths {
+  /** HTML・PDF出力に使うテンプレート */
   html?: string;
   excel?: string;
 }
@@ -93,7 +130,7 @@ function resolvePresetPath(name: string, ext: '.html' | '.xlsx'): string {
  * ファイルパスなら、拡張子が合う形式にだけそのファイルを使う。
  *
  * @param template `--template` に指定された値
- * @param shouldHtml HTMLを出力するか
+ * @param shouldHtml HTMLテンプレートを使う形式（HTML・PDF）を出力するか
  * @param shouldExcel Excelを出力するか
  * @returns 出力形式ごとのテンプレートファイルのパス
  * @throws GeneratorError プリセットが見つからない、または両形式出力時に拡張子が無効な場合
@@ -165,10 +202,11 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
 
   const outputDir = path.resolve(options.out);
 
-  const shouldHtml = options.format === 'html' || options.format === 'both';
-  const shouldExcel = options.format === 'excel' || options.format === 'both';
+  const shouldHtml = options.format.includes('html');
+  const shouldExcel = options.format.includes('excel');
+  const shouldPdf = options.format.includes('pdf');
 
-  const templates = resolveTemplatePaths(options.template, shouldHtml, shouldExcel);
+  const templates = resolveTemplatePaths(options.template, shouldHtml || shouldPdf, shouldExcel);
 
   const results: string[] = [];
 
@@ -195,6 +233,20 @@ export async function runGenerate(inputFile: string, options: GenerateOptions): 
       outputBaseName,
     );
     console.log(`  ✅  Excel: ${outPath}`);
+    results.push(outPath);
+  }
+
+  // PDF生成
+  if (shouldPdf) {
+    const outPath = await generatePdf(
+      doc,
+      resolvedInput,
+      outputDir,
+      templates.html,
+      outputBaseName,
+      options.browser,
+    );
+    console.log(`  ✅  PDF: ${outPath}`);
     results.push(outPath);
   }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { runGenerate } from './commands/generate';
+import { runGenerate, parseFormats } from './commands/generate';
+import type { GenerateOptions, OutputFormat } from './commands/generate';
 import { ParseError, GeneratorError, TemplateError } from './utils/errors';
 import { expandInputFiles } from './utils/inputFiles';
 
@@ -29,16 +30,17 @@ program
     '変換対象のMarkdownファイルパス（複数指定・ワイルドカード可。例: "docs/*.md"）',
   )
   .option(
-    '-f, --format <format>',
-    '出力形式: html | excel | both',
+    '-f, --format <formats>',
+    '出力形式: html | excel | pdf（カンマ区切りで複数指定可。例: html,pdf）',
     (val: string) => {
-      if (!['html', 'excel', 'both'].includes(val)) {
-        console.error(`エラー: --format には html / excel / both のいずれかを指定してください。`);
+      try {
+        return parseFormats(val);
+      } catch (err) {
+        reportError(err);
         process.exit(1);
       }
-      return val as 'html' | 'excel' | 'both';
     },
-    'both',
+    ['html'] as OutputFormat[],
   )
   .option('-o, --out <directory>', '出力先ディレクトリ', './output')
   .option(
@@ -49,43 +51,37 @@ program
     '-n, --name <property>',
     '出力ファイル名に使うFront Matterのプロパティ（例: meta.filename）',
   )
-  .action(
-    async (
-      fileArgs: string[],
-      options: {
-        format: 'html' | 'excel' | 'both';
-        out: string;
-        template?: string;
-        name?: string;
-      },
-    ) => {
-      let files: string[];
+  .option(
+    '--browser <path>',
+    'PDF出力に使うブラウザ（Edge / Chrome）の実行ファイルのパス（省略時は自動で探す）',
+  )
+  .action(async (fileArgs: string[], options: GenerateOptions) => {
+    let files: string[];
+    try {
+      files = await expandInputFiles(fileArgs);
+    } catch (err) {
+      reportError(err);
+      process.exit(1);
+    }
+
+    // 1ファイルが失敗しても残りのファイルは変換を続ける
+    const failed: string[] = [];
+    for (const file of files) {
       try {
-        files = await expandInputFiles(fileArgs);
+        await runGenerate(file, options);
       } catch (err) {
         reportError(err);
-        process.exit(1);
+        failed.push(file);
       }
+    }
 
-      // 1ファイルが失敗しても残りのファイルは変換を続ける
-      const failed: string[] = [];
-      for (const file of files) {
-        try {
-          await runGenerate(file, options);
-        } catch (err) {
-          reportError(err);
-          failed.push(file);
-        }
-      }
-
-      if (files.length > 1) {
-        console.log(`📚  ${files.length}件中 ${files.length - failed.length}件を変換しました。`);
-      }
-      if (failed.length > 0) {
-        console.error(`❌  変換に失敗したファイル:\n${failed.map((f) => `    ${f}`).join('\n')}\n`);
-        process.exit(1);
-      }
-    },
-  );
+    if (files.length > 1) {
+      console.log(`📚  ${files.length}件中 ${files.length - failed.length}件を変換しました。`);
+    }
+    if (failed.length > 0) {
+      console.error(`❌  変換に失敗したファイル:\n${failed.map((f) => `    ${f}`).join('\n')}\n`);
+      process.exit(1);
+    }
+  });
 
 program.parse();

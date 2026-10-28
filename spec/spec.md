@@ -20,7 +20,7 @@
 | **想定実行環境** | Windows, macOS, Linux |
 | **開発言語** | Node.js　V22 (TypeScript)  |
 | **入力フォーマット** | Markdown（CommonMark準拠 ＋ Tejun.ts独自拡張） |
-| **出力フォーマット** | HTML5（CSS適用済みスタンドアロン）, Excel（`.xlsx`） |
+| **出力フォーマット** | HTML5（CSS適用済みスタンドアロン）, Excel（`.xlsx`）, PDF |
 
 ---
 
@@ -54,6 +54,15 @@ update: "2024/09/23"
 * ダークモード/ライトモードの切り替え機能、チェックボックスのクリック連動（進捗バー表示など）をサポートする。
 * HTMLテンプレート内に `${markdown}` と記述すると、入力Markdown全文（Front Matterを除く）をHTMLに変換したテキストがその位置に埋め込まれる。
 * HTMLテンプレート内に `${title}` / `${date}` / `${update}` と記述すると、`{{meta.title}}` / `{{meta.date}}` / `{{meta.update}}` と同じ値が埋め込まれる。`${overview}` は最初のH2以降の見出しより前に書かれた概要文をHTMLに変換したテキストになる。
+
+### 3.3.1. PDF出力機能（`.pdf`）
+
+* HTML出力と同じHTMLテンプレートを展開したHTMLを、PCにインストール済みのブラウザ（Edge / Chrome）で印刷してPDFを生成する。ブラウザ本体は同梱・ダウンロードしない（`puppeteer-core` を使用）。
+* ブラウザは `--browser` で指定したパスを使う。未指定の場合はよくあるインストール先を探す（Windows: Edge → Chrome、macOS: Chrome → Edge → Chromium、Linux: Chrome → Chromium → Edge）。見つからない場合はエラーになる。
+* 印刷時はテンプレート内のJavaScriptを実行しない。見た目はテンプレートの `@media print` のCSSで調整する。
+* 用紙はA4縦。フッターの中央にページ番号を「`1 / 10`」の形式で入れる。ヘッダーは入れない。
+* 見出し（`<h1>`〜`<h6>` タグ）からPDFのしおりを作る。
+* 既定のテンプレート（`default.html`）は、印刷時に目次を前書きの後に表示し（クリックで該当ページに移動できる。ページ番号は入れない）、大項目（H1）ごとに改ページし、1つの手順（H2）が途中で改ページされないようにする（1ページに収まらない手順は途中で改ページされる）。
 
 ### 3.4. テンプレート変数・制御タグ（HTML/Excel共通）
 
@@ -113,7 +122,7 @@ $ npx ts-node src/index.ts ./examples/default.md -f html -t ./templates/default.
 $ npx ts-node src/index.ts ./examples/default.md -f excel -t ./templates/default.xlsx -o ./examples/output
 
 ```
-- f：フォーマットを指定します。excelかhtmlになります。
+- f：フォーマットを指定します。html / excel / pdf をカンマ区切りで指定します（例: `html,pdf`）。無指定の場合は html です。PDFにはHTMLテンプレートを使います。
 - t：テンプレートを指定します。無指定の場合、デフォルトのテンプレートファイルを読み込みます。
 
 

@@ -23,9 +23,9 @@ if errorlevel 1 (
 )
 
 if "%~1"=="" (
-  call %TEJUN% "*.md" -o output
+  call %TEJUN% "*.md" -f html,excel -o output
 ) else (
-  call %TEJUN% %* -o output
+  call %TEJUN% %* -f html,excel -o output
 )
 
 if errorlevel 1 (
