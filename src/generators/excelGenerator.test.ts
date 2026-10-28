@@ -355,6 +355,14 @@ describe('generateExcel', () => {
       expect(images).toHaveLength(4);
       expect(images[0].range.tl.nativeRowOff).toBe(4 * 9525);
       expect(ws.getRow(1).getCell(3).value).toBe('');
+      // 右下も同じセルの中で指定し、表示スケールで行の高さの見え方が変わってもセルからはみ出さない
+      const rowHeightPx = ws.getRow(1).height! / 0.75;
+      for (const { range } of images) {
+        expect(range.br.nativeRow).toBe(range.tl.nativeRow);
+        expect(range.br.nativeCol).toBe(range.tl.nativeCol);
+        expect(range.br.nativeRowOff).toBeGreaterThan(range.tl.nativeRowOff);
+        expect(range.br.nativeRowOff / 9525).toBeLessThan(rowHeightPx);
+      }
     });
 
     it('読み込めない画像は警告を出してスキップし、生成は続ける', async () => {

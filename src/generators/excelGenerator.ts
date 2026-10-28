@@ -78,6 +78,28 @@ async function addWorkbookImage(
 }
 
 /**
+ * セルの左上からpx単位でずらした位置を、画像の位置として指定する値を作る
+ *
+ * @param row 行番号（1始まり）
+ * @param col 列番号（1始まり）
+ * @param x セルの左端からの距離（px）
+ * @param y セルの上端からの距離（px）
+ */
+function cellAnchor(row: number, col: number, x: number, y: number): ExcelJS.Anchor {
+  // exceljsは `nativeCol` などがあればそちらを使う（`col` / `row` の小数ではpx単位のずらし量を指定できない）
+  const anchor: ExcelJS.IAnchor = {
+    col: col - 1,
+    row: row - 1,
+    nativeCol: col - 1,
+    nativeColOff: x * EMU_PER_PX,
+    nativeRow: row - 1,
+    nativeRowOff: y * EMU_PER_PX,
+  };
+  // 型定義は `Anchor` クラスを要求するが、実行時は位置だけを渡せばよい（クラスはexportされていない）
+  return anchor as ExcelJS.Anchor;
+}
+
+/**
  * セルの文章の下に画像を縦に並べて貼り付け、行の高さを画像が収まるよう広げる
  */
 function placeImagesInCell(
@@ -99,18 +121,11 @@ function placeImagesInCell(
   wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
 
   layout.images.forEach((placed, i) => {
-    // exceljsは `nativeCol` などがあればそちらを使う（`col` / `row` の小数ではpx単位のずらし量を指定できない）
-    const tl = {
-      col: col - 1,
-      row: row - 1,
-      nativeCol: col - 1,
-      nativeColOff: placed.x * EMU_PER_PX,
-      nativeRow: row - 1,
-      nativeRowOff: placed.y * EMU_PER_PX,
-    };
+    // 大きさではなく右下の位置で指定する。Windowsの表示スケールによって行の高さの見え方が変わっても、
+    // Excelが画像をセルの中に収めて描くようにするため
     ws.addImage(images[i].id, {
-      tl,
-      ext: { width: placed.width, height: placed.height },
+      tl: cellAnchor(row, col, placed.x, placed.y),
+      br: cellAnchor(row, col, placed.x + placed.width, placed.y + placed.height),
       editAs: 'oneCell',
     });
   });
