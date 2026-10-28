@@ -6,7 +6,6 @@ import { GeneratorError } from '../utils/errors';
 import {
   expandLoopChains,
   extractRowLoop,
-  hasImagesProperty,
   renderCell,
   replaceCellVariables,
 } from '../template/templateEngine';
@@ -249,8 +248,6 @@ async function buildFromTemplate(
   templateWs.spliceRows(templateRowNumber, 1);
 
   const chains = expandLoopChains([ctx.root], rowLoop.symbols);
-  // {{記号.images}} のセルがあれば、行の画像はそのセルにだけ貼り付ける
-  const onlyImagesProperty = templateCells.some((cellDef) => hasImagesProperty(cellDef.value));
   const cellImages: CellImages[] = [];
   let insertAt = templateRowNumber;
   chains.forEach((chain, i) => {
@@ -262,13 +259,7 @@ async function buildFromTemplate(
     templateCells.forEach((cellDef, colNum) => {
       if (colNum === 0) return;
       const cell = newRow.getCell(colNum);
-      const { text, segments, images } = renderCell(
-        cellDef.value,
-        ctx,
-        chain,
-        chains[i - 1],
-        onlyImagesProperty,
-      );
+      const { text, segments, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
       cell.value = toCellValue(text, segments, cellDef.style.font);
       textHeightPx = Math.max(
         textHeightPx,

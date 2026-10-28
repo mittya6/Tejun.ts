@@ -65,6 +65,8 @@ update: "2024/09/23"
   * 例: `{{#each ### steps}}` の内側の `{{##}}` はその手順が属する大項目、`{{>}}` はその手順の最初の引用。
 * `{{記号.記号}}` は、左の要素を起点に右の要素を同じ規則で探す（例: `{{###.>}}`、`{{#.>}}`）。
 * `{{記号.body}}` は、見出し直下の最初の引用より前に書かれた本文をHTMLに変換したもの（`{{#.body}}` は概要文の本文、`{{###.body}}` は操作手順）。
+* `{{記号.images}}` は、要素の中（本文・引用・リストなど）の画像の `<img>` タグだけを改行で連結したもの。
+* `{{記号.text}}` / `{{記号.body.text}}` は、`{{記号}}` / `{{記号.body}}` のHTMLから画像を取り除いたもの。`.text` は末尾にだけ書ける。
 * `{{記号.index}}` は1始まりの連番。同じ親の中での同じ種類の要素の連番（見出しも大項目が変わるごとに1に戻る）。
 * `{{meta.プロパティ名}}` はFront Matterの任意のプロパティ（無ければ空文字）。`title` / `date` / `update` は解決済みの値（`title` はFront Matter優先でなければH1、`date` は未指定なら生成日、`update` は未指定なら空文字）。
 * `{{#each 記号 steps}}...{{/each}}` は、カレント要素の中にあるその記号の要素ごとに繰り返す。見つけた要素のさらに内側にある同じ記号の要素は含めない（入れ子の箇条書きは、外側の項目の内側でもう一度 `{{#each - steps}}` を使う）。入れ子にできる。
@@ -87,7 +89,7 @@ update: "2024/09/23"
 
 * `{{#each 記号 steps}}` と `{{/each}}` が別のセルにある組、および行末まで閉じられていない `{{#each 記号 steps}}` を**行ループ**とし、その行を要素ごとに複製する。行ループが入れ子のとき（例: `{{#each ## steps}}` と `{{#each ### steps}}`）は、一番内側の要素1つが1行になる。
 * 同じセルの中で閉じている `{{#each}}` はセル内のループとして、そのセルの中で繰り返す。
-* 行ループの行のセルに展開したHTML（要素の内容・`.body`）に画像があれば、そのセルの文章の下に出現順に縦に並べて貼り付ける。画像はセルの幅に収まるよう縦横比を保って縮小し、行の高さを文章（概算）と画像が収まる高さに広げる（上限409pt。超える場合は画像を縮小する）。PNG・JPEG・GIFはそのまま、WebPはPNGに変換して貼り付ける。
+* 行ループの行のセルに展開したHTML（要素の内容・`.body`・`.images`。`.text` の変数は画像を含まない）に画像があれば、そのセルの文章の下に出現順に縦に並べて貼り付ける。画像はセルの幅に収まるよう縦横比を保って縮小し、行の高さを文章（概算）と画像が収まる高さに広げる（上限409pt。超える場合は画像を縮小する）。PNG・JPEG・GIFはそのまま、WebPはPNGに変換して貼り付ける。
 * 行ループの行のセルに展開したHTMLにコードブロック（`<pre>`）があれば、セルの値をリッチテキストにし、コードブロックの部分だけフォント名を Consolas、文字色を濃い赤（`#C7254E`）にする（サイズなどはテンプレートのセルのフォントを引き継ぐ）。コードブロックが無いセルは文字列のまま。
 
 ---
@@ -106,9 +108,9 @@ $ npx Tejun ./procedure.md -f html -t ./my-html-template.html
 
 
 # 開発環境で実施する場合
-$ npx ts-node src/index.ts ./examples/20260708.md -f html -t ./templates/default.html -o ./examples/output
+$ npx ts-node src/index.ts ./examples/default.md -f html -t ./templates/default.html -o ./examples/output
 
-$ npx ts-node src/index.ts ./examples/20260708.md -f excel -t ./templates/default.xlsx -o ./examples/output
+$ npx ts-node src/index.ts ./examples/default.md -f excel -t ./templates/default.xlsx -o ./examples/output
 
 ```
 - f：フォーマットを指定します。excelかhtmlになります。

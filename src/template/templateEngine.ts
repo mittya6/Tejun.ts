@@ -26,7 +26,7 @@ const TAG_RE = /\{\{([^{}]*)\}\}/g;
 const EACH_TAG_RE = /\{\{#each\b([^{}]*)\}\}|\{\{\/each\}\}/g;
 
 /** 参照式の1区切り（記号またはプロパティ）と、その後ろの区切りの `.` にマッチする正規表現 */
-const PATH_SEGMENT_RE = /(#{1,6}|>|-|1\.|```|body|index|first|images)(\.|$)/y;
+const PATH_SEGMENT_RE = /(#{1,6}|>|-|1\.|```|body|index|first|images|text)(\.|$)/y;
 
 const EACH_MISMATCH_MESSAGE = 'テンプレートの {{#each}} / {{/each}} タグが正しく対応していません。';
 const IF_MISMATCH_MESSAGE = 'テンプレートの {{#if}} / {{/if}} タグが正しく対応していません。';
@@ -40,7 +40,7 @@ const PROPERTIES: readonly string[] = ['body', 'index', 'first', 'images'] satis
 type Expr =
   | { kind: 'meta'; key: string }
   | { kind: 'rootBody' }
-  | { kind: 'path'; symbols: NodeSymbol[]; property?: Property };
+  | { kind: 'path'; symbols: NodeSymbol[]; property?: Property; withoutImages?: boolean };
 
 /** 解析済みテンプレートの要素 */
 type TemplateNode =
@@ -54,14 +54,6 @@ interface Value {
   text: string;
   /** `text` がHTMLか（見出しテキストやメタ情報はプレーンテキスト） */
   isHtml: boolean;
-}
-
-/** `text` モードで展開したHTMLに含まれる画像の集め先 */
-interface ImageCollector {
-  /** 画像の `src`（出現順） */
-  srcs: string[];
-  /** `{{記号.images}}` の画像だけを集めるか */
-  onlyImagesProperty: boolean;
 }
 
 /** 出力形式。`html` はプレーンテキストをHTMLエスケープ、`text` はHTMLのタグを除去する */
@@ -109,19 +101,26 @@ function mergeSegments(segments: TextSegment[]): TextSegment[] {
 }
 
 /**
- * `###.>` / `-.index` のような記号の参照式を解析する
+ * `###.>` / `-.index` / `###.body.text` のような記号の参照式を解析する。
+ * `text` は末尾にだけ書け、記号または `body` の後ろに続く。
  *
  * @returns 参照式として解釈できなければ `undefined`
  */
 function parsePath(source: string): Expr | undefined {
   const symbols: NodeSymbol[] = [];
   let property: Property | undefined;
+  let withoutImages = false;
   let separator = '';
   PATH_SEGMENT_RE.lastIndex = 0;
   while (PATH_SEGMENT_RE.lastIndex < source.length) {
     const match = PATH_SEGMENT_RE.exec(source);
-    if (!match || property) return undefined;
-    if (PROPERTIES.includes(match[1])) {
+    if (!match || withoutImages) return undefined;
+    if (match[1] === 'text') {
+      if (property && property !== 'body') return undefined;
+      withoutImages = true;
+    } else if (property) {
+      return undefined;
+    } else if (PROPERTIES.includes(match[1])) {
       property = match[1] as Property;
     } else {
       symbols.push(match[1] as NodeSymbol);
@@ -129,7 +128,9 @@ function parsePath(source: string): Expr | undefined {
     separator = match[2];
   }
   if (symbols.length === 0 || separator === '.') return undefined;
-  return { kind: 'path', symbols, property };
+  return withoutImages
+    ? { kind: 'path', symbols, property, withoutImages }
+    : { kind: 'path', symbols, property };
 }
 
 /**
@@ -152,7 +153,13 @@ function parseExpr(source: string): Expr | undefined {
 function parseEachSymbol(arg: string, tag: string): NodeSymbol {
   const match = /^\s+(\S+)\s+steps\s*$/.exec(arg);
   const expr = match ? parsePath(match[1]) : undefined;
-  if (!expr || expr.kind !== 'path' || expr.symbols.length !== 1 || expr.property) {
+  if (
+    !expr ||
+    expr.kind !== 'path' ||
+    expr.symbols.length !== 1 ||
+    expr.property ||
+    expr.withoutImages
+  ) {
     throw new TemplateError(
       `テンプレートの ${tag} は解釈できません。{{#each 記号 steps}} の形で書いてください。`,
     );
@@ -264,23 +271,6 @@ function evaluateMeta(key: string, ctx: TemplateContext): string {
 }
 
 /**
- * `{{記号.images}}` の式か
- */
-function isImagesExpr(expr: Expr): boolean {
-  return expr.kind === 'path' && expr.property === 'images';
-}
-
-/**
- * 解析済みテンプレートに `{{記号.images}}` の変数があるか（`{{#if}}` / `{{#each}}` の中も含む）
- */
-function containsImagesVar(nodes: TemplateNode[]): boolean {
-  return nodes.some((node) => {
-    if (node.kind === 'var') return isImagesExpr(node.expr);
-    return node.kind !== 'text' && containsImagesVar(node.children);
-  });
-}
-
-/**
  * 要素の中のHTML（見出し・ルートは本文と子要素、それ以外は要素の内容）を返す
  */
 function elementHtmls(node: DocNode): string[] {
@@ -297,11 +287,29 @@ function collectImageTags(node: DocNode): string[] {
 }
 
 /**
- * 式を評価する。参照先の要素が無ければ空文字。
+ * 式を評価する。参照先の要素が無ければ空文字。`.text` の式はHTMLから画像を取り除く。
  *
  * @param prevChain 前の行の経路（Excelの行ループのみ。`first` の判定に使う）
  */
 function evaluate(
+  expr: Expr,
+  chain: DocNode[],
+  ctx: TemplateContext,
+  prevChain?: DocNode[],
+): Value {
+  const value = evaluateExpr(expr, chain, ctx, prevChain);
+  if (expr.kind === 'path' && expr.withoutImages && value.isHtml) {
+    return { text: removeImages(value.text), isHtml: true };
+  }
+  return value;
+}
+
+/**
+ * 式を評価する（`.text` の画像の除去はしない）。参照先の要素が無ければ空文字。
+ *
+ * @param prevChain 前の行の経路（Excelの行ループのみ。`first` の判定に使う）
+ */
+function evaluateExpr(
   expr: Expr,
   chain: DocNode[],
   ctx: TemplateContext,
@@ -330,8 +338,7 @@ function evaluate(
  *
  * @param chain ルートからカレント要素までの経路（ループの外側ではルートのみ）
  * @param prevChain 前の行の経路（Excelの行ループのみ）
- * @param images `text` モードで、展開したHTMLに含まれる画像の `src` を出現順に追加する配列と、
- *   `{{記号.images}}` の画像だけを追加するか
+ * @param images `text` モードで、展開したHTMLに含まれる画像の `src` を出現順に追加する配列
  */
 function renderNodes(
   nodes: TemplateNode[],
@@ -339,7 +346,7 @@ function renderNodes(
   ctx: TemplateContext,
   mode: OutputMode,
   prevChain?: DocNode[],
-  images?: ImageCollector,
+  images?: string[],
 ): TextSegment[] {
   return mergeSegments(
     nodes.flatMap((node): TextSegment[] => {
@@ -352,9 +359,7 @@ function renderNodes(
             return plainSegments(value.isHtml ? value.text : escapeHtml(value.text));
           }
           if (!value.isHtml) return plainSegments(value.text);
-          if (images && (!images.onlyImagesProperty || isImagesExpr(node.expr))) {
-            images.srcs.push(...extractImageSrcs(value.text));
-          }
+          images?.push(...extractImageSrcs(value.text));
           return htmlToSegments(value.text);
         }
         case 'if':
@@ -381,6 +386,7 @@ function renderNodes(
  * - `{{記号.記号}}` → 左の要素を起点に右の要素を探す（例: `{{###.>}}` は手順の最初の引用）
  * - `{{記号.body}}` → 見出し直下の最初の引用より前の本文のHTML（エスケープなし）
  * - `{{記号.images}}` → 要素の中（本文・引用・リストなど）の画像の `<img>` タグだけを改行で連結したもの
+ * - `{{記号.text}}` / `{{記号.body.text}}` → `{{記号}}` / `{{記号.body}}` のHTMLから画像を取り除いたもの
  * - `{{root.body}}` → 最初の見出しより前（かつ最初の引用より前）の本文のHTML（エスケープなし）
  * - `{{記号.index}}` → 1始まりの連番（同じ親の中での連番。見出しも親の見出しが変わると1に戻る）
  * - `{{記号.first}}` → Excelの行ループで、要素が前の行と別の要素なら `1`、同じ要素なら空文字
@@ -436,7 +442,6 @@ export function replaceCellVariables(
  * @param ctx ドキュメント全体のコンテキスト
  * @param chain ルートからカレント要素までの経路（行ループの行では、その行の要素まで）
  * @param prevChain 行ループの前の行の経路（最初の行では省略）
- * @param onlyImagesProperty `{{記号.images}}` の画像だけを返すか（行に `{{記号.images}}` のセルがある場合）
  * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、またはセル内で閉じタグと対応しない場合
  */
 export function renderCell(
@@ -444,21 +449,10 @@ export function renderCell(
   ctx: TemplateContext,
   chain: DocNode[],
   prevChain?: DocNode[],
-  onlyImagesProperty = false,
 ): { text: string; segments: TextSegment[]; images: string[] } {
-  const images: ImageCollector = { srcs: [], onlyImagesProperty };
+  const images: string[] = [];
   const segments = renderNodes(parseTemplate(cellValue), chain, ctx, 'text', prevChain, images);
-  return { text: joinSegments(segments), segments, images: images.srcs };
-}
-
-/**
- * Excelテンプレート用: セル値に `{{記号.images}}` の変数があるか（`{{#if}}` / `{{#each}}` の中も含む）
- *
- * @param cellValue セルのテキスト値
- * @throws TemplateError `{{#each}}` / `{{#if}}` の書式が誤っている、またはセル内で閉じタグと対応しない場合
- */
-export function hasImagesProperty(cellValue: string): boolean {
-  return containsImagesVar(parseTemplate(cellValue));
+  return { text: joinSegments(segments), segments, images };
 }
 
 /**
@@ -560,13 +554,18 @@ function numberOrderedListItems(html: string): string {
 }
 
 /**
+ * HTML文字列から画像を取り除く。画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
+ */
+function removeImages(html: string): string {
+  return html.replace(/<img\b[^>]*>\n?/gi, '').replace(/<p>\s*<\/p>\n?/gi, '');
+}
+
+/**
  * HTML文字列からタグを除去してプレーンテキストに変換する（前後の空白は残す）。
  * 画像は、画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
  */
 function htmlToText(html: string): string {
-  return html
-    .replace(/<img\b[^>]*>\n?/gi, '')
-    .replace(/<p>\s*<\/p>\n?/gi, '')
+  return removeImages(html)
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/li>/gi, '\n')

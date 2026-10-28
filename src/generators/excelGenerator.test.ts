@@ -328,13 +328,13 @@ describe('generateExcel', () => {
       expect(media.map((m) => m.extension)).toEqual(['png', 'png', 'png']);
     });
 
-    it('行に {{記号.images}} のセルがあれば、その行の画像はそのセルにだけ貼り付ける', async () => {
+    it('{{記号.text}} のセルには画像を貼らず、{{記号.images}} のセルに貼り付ける', async () => {
       await writeImages();
       const templatePath = path.join(tmpDir, 'custom-images.xlsx');
       const tplWb = new ExcelJS.Workbook();
       const tplWs = tplWb.addWorksheet('テンプレート');
-      tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
-      tplWs.getRow(1).getCell(2).value = '{{##.>}}';
+      tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body.text}}';
+      tplWs.getRow(1).getCell(2).value = '{{##.>.text}}';
       tplWs.getRow(1).getCell(3).value = '{{##.images}}{{/each}}';
       await tplWb.xlsx.writeFile(templatePath);
 

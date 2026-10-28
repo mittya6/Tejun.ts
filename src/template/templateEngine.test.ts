@@ -4,7 +4,6 @@ import {
   stripHtml,
   replaceCellVariables,
   renderCell,
-  hasImagesProperty,
   extractRowLoop,
   expandLoopChains,
 } from './templateEngine';
@@ -93,6 +92,30 @@ describe('renderTemplate', () => {
       const ctx = ctxFrom('# 見出し\n\n## 手順\n\n本文 ![本文](./a.png)\n\n- 項目 ![リスト](./b.png)\n');
       expect(renderTemplate('{{#each ## steps}}{{##.images}}{{/each}}', ctx)).toBe(
         '<img src="./a.png" alt="本文">\n<img src="./b.png" alt="リスト">',
+      );
+    });
+
+    it('{{記号.text}} / {{記号.body.text}} は画像を取り除いたHTMLになる（画像だけの段落は残さない）', () => {
+      const ctx = ctxFrom(
+        '# 見出し\n\n## 手順\n\n本文 ![本文](./a.png)\n\n![画像だけ](./b.png)\n\n> 結果\n> ![引用](./c.png)\n',
+      );
+      expect(renderTemplate('{{#each ## steps}}{{##.body.text}}{{/each}}', ctx)).toBe(
+        '<p>本文 </p>\n',
+      );
+      expect(renderTemplate('{{#each ## steps}}{{>.text}}|{{##.>.text}}{{/each}}', ctx)).not.toContain(
+        '<img',
+      );
+      expect(renderTemplate('{{#each ## steps}}{{##.text}}{{/each}}', ctx)).toBe('手順');
+    });
+
+    it('.text を解釈できない位置に書いた変数はそのまま出力する', () => {
+      const tpl = '{{##.index.text}}{{##.images.text}}{{##.text.body}}{{text}}{{##.text.}}';
+      expect(renderTemplate(tpl, SAMPLE_CTX)).toBe(tpl);
+    });
+
+    it('{{#each 記号.text steps}} はエラーになる', () => {
+      expect(() => renderTemplate('{{#each ##.text steps}}{{/each}}', SAMPLE_CTX)).toThrow(
+        TemplateError,
       );
     });
 
@@ -334,11 +357,14 @@ describe('renderCell', () => {
     });
   });
 
-  it('onlyImagesProperty を指定すると {{記号.images}} 以外の変数の画像は返さない', () => {
+  it('{{記号.text}} / {{記号.body.text}} の画像は返さない（テキストは同じ）', () => {
     const ctx = ctxFrom(md);
     const [chain] = expandLoopChains([ctx.root], ['##']);
-    expect(renderCell('{{##.body}}\n{{>}}', ctx, chain, undefined, true).images).toEqual([]);
-    expect(renderCell('{{>}}{{##.images}}', ctx, chain, undefined, true).images).toEqual([
+    expect(renderCell('{{##.body.text}}\n{{>.text}}', ctx, chain)).toEqual({
+      ...renderCell('{{##.body}}\n{{>}}', ctx, chain),
+      images: [],
+    });
+    expect(renderCell('{{>.text}}{{##.images}}', ctx, chain).images).toEqual([
       './body.png',
       './list.webp',
       './quote.gif',
@@ -361,19 +387,6 @@ describe('renderCell', () => {
     const ctx = ctxFrom('# 見出し\n\n## 手順\n\n```\nls\n```\n');
     const [chain] = expandLoopChains([ctx.root], ['##']);
     expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([{ text: 'ls', code: true }]);
-  });
-});
-
-describe('hasImagesProperty', () => {
-  it('{{記号.images}} を含むセルなら true（条件やループの中も含む）', () => {
-    expect(hasImagesProperty('{{###.images}}')).toBe(true);
-    expect(hasImagesProperty('{{#if >}}{{###.>.images}}{{/if}}')).toBe(true);
-    expect(hasImagesProperty('{{#each - steps}}{{-.images}}{{/each}}')).toBe(true);
-  });
-
-  it('{{記号.images}} を含まないセルなら false', () => {
-    expect(hasImagesProperty('{{###.body}} images')).toBe(false);
-    expect(hasImagesProperty('')).toBe(false);
   });
 });
 
