@@ -535,7 +535,17 @@ describe('stripHtml', () => {
   });
 
   it('番号付きリストの各項目に番号を付ける', () => {
-    expect(stripHtml('<ol>\n<li>手順A</li>\n<li>手順B</li>\n</ol>')).toBe('1. 手順A\n\n2. 手順B');
+    expect(stripHtml('<ol>\n<li>手順A</li>\n<li>手順B</li>\n</ol>')).toBe('1. 手順A\n2. 手順B');
+  });
+
+  it('空行で区切ったリストでも項目の間は1つの改行にする', () => {
+    const html = '<p>本文</p>\n<ol>\n<li><p>手順A</p>\n</li>\n<li><p>手順B</p>\n</li>\n</ol>\n<p>後</p>\n';
+    expect(stripHtml(html)).toBe('本文\n\n1. 手順A\n2. 手順B\n\n後');
+  });
+
+  it('リストの項目の中のコードブロックは前後を1つの改行で区切る', () => {
+    const html = '<ol>\n<li>手順A<pre><code>cmd\n</code></pre>\n</li>\n<li>手順B</li>\n</ol>\n';
+    expect(stripHtml(html)).toBe('1. 手順A\ncmd\n2. 手順B');
   });
 
   it('番号付きリストの start 属性の番号から数え始める', () => {
@@ -544,7 +554,7 @@ describe('stripHtml', () => {
 
   it('入れ子の番号付きリストはリストごとに番号を数える', () => {
     expect(stripHtml('<ol><li>親1<ol><li>子1</li><li>子2</li></ol></li><li>親2</li></ol>')).toBe(
-      '1. 親11. 子1\n2. 子2\n\n2. 親2',
+      '1. 親1\n1. 子1\n2. 子2\n2. 親2',
     );
   });
 

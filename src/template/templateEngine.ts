@@ -66,8 +66,11 @@ export interface TextSegment {
   code: boolean;
 }
 
-/** `<pre>` 要素にマッチする正規表現 */
-const PRE_RE = /<pre\b[^>]*>([\s\S]*?)<\/pre>/gi;
+/**
+ * 改行に変換するブロックのタグにマッチする正規表現。markedがタグの後に入れる改行も含める。
+ * グループ1: `<pre>` 要素の中身、グループ2: 閉じタグの `/`、グループ3: `p` / `li` / `ol` / `ul` のタグ名
+ */
+const BLOCK_RE = /<pre\b[^>]*>([\s\S]*?)<\/pre>\n?|<(\/?)(p|li|ol|ul)\b[^>]*>\n?|<br\s*\/?>/gi;
 
 /**
  * コードブロックでないテキストの断片を返す。空文字なら断片なし。
@@ -565,14 +568,10 @@ function removeImages(html: string): string {
 }
 
 /**
- * HTML文字列からタグを除去してプレーンテキストに変換する（前後の空白は残す）。
- * 画像は、画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
+ * HTML文字列からタグを除去してプレーンテキストに変換する（前後の空白は残す）
  */
 function htmlToText(html: string): string {
-  return removeImages(html)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<\/li>/gi, '\n')
+  return html
     .replace(/<[^>]+>/g, '')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -586,25 +585,72 @@ function htmlToText(html: string): string {
  * 画像は、画像だけの行・段落が空行として残らないよう、直後の改行ごと取り除く。
  */
 export function stripHtml(html: string): string {
-  return htmlToText(numberOrderedListItems(html)).trim();
+  return joinSegments(htmlToSegments(html));
+}
+
+/**
+ * 断片の末尾の改行が `count` 個以上になるよう改行を足す。文章がまだ無ければ足さない。
+ */
+function appendLineBreaks(segments: TextSegment[], count: number): void {
+  const text = joinSegments(segments);
+  if (!text.trim()) return;
+  const trailing = text.length - text.replace(/\n+$/, '').length;
+  if (trailing < count) segments.push({ text: '\n'.repeat(count - trailing), code: false });
+}
+
+/**
+ * ブロックの区切りの改行の数。リストの外では空行（改行2つ）、リストの中では改行1つ。
+ */
+function blockBreakCount(listDepth: number): number {
+  return listDepth > 0 ? 1 : 2;
+}
+
+/**
+ * `p` / `li` / `ol` / `ul` のタグの位置で、直前の文章の末尾に必要な改行の数
+ *
+ * @param listDepth タグを処理した後のリストの入れ子の深さ
+ */
+function tagBreakCount(tagName: string, closing: boolean, listDepth: number): number {
+  if (!closing) return tagName === 'p' ? 0 : 1;
+  return tagName === 'li' ? 1 : blockBreakCount(listDepth);
 }
 
 /**
  * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）とそれ以外の断片に分ける
+ *
+ * ブロックの区切りは、リストの外では空行（改行2つ）、リストの中では改行1つにする。
+ * markedがタグの後に入れる改行は区切りと重なるため捨てる。
  */
 function htmlToSegments(html: string): TextSegment[] {
-  const numbered = numberOrderedListItems(html);
+  const prepared = removeImages(numberOrderedListItems(html));
   const segments: TextSegment[] = [];
+  let listDepth = 0;
   let lastIndex = 0;
-  for (const match of numbered.matchAll(PRE_RE)) {
-    segments.push({ text: htmlToText(numbered.slice(lastIndex, match.index)), code: false });
-    segments.push({ text: htmlToText(match[1]), code: true });
+  for (const match of prepared.matchAll(BLOCK_RE)) {
+    segments.push({ text: htmlToText(prepared.slice(lastIndex, match.index)), code: false });
     lastIndex = match.index + match[0].length;
+    const [, code, slash, name] = match;
+    if (code !== undefined) {
+      appendLineBreaks(segments, 1);
+      segments.push({ text: htmlToText(code), code: true });
+      appendLineBreaks(segments, blockBreakCount(listDepth));
+    } else if (name === undefined) {
+      // <br>
+      segments.push({ text: '\n', code: false });
+    } else {
+      const tagName = name.toLowerCase();
+      if (tagName === 'ol' || tagName === 'ul') listDepth += slash ? -1 : 1;
+      appendLineBreaks(segments, tagBreakCount(tagName, slash === '/', listDepth));
+    }
   }
-  segments.push({ text: htmlToText(numbered.slice(lastIndex)), code: false });
+  segments.push({ text: htmlToText(prepared.slice(lastIndex)), code: false });
+  return trimSegments(mergeSegments(segments));
+}
 
-  // `stripHtml` の trim と同じく、全体の前後の空白を取り除く
-  const merged = mergeSegments(segments);
+/**
+ * 断片を連結した文章全体の前後の空白を取り除く
+ */
+function trimSegments(merged: TextSegment[]): TextSegment[] {
   while (merged.length > 0 && !merged[0].text.trim()) merged.shift();
   while (merged.length > 0 && !merged[merged.length - 1].text.trim()) merged.pop();
   if (merged.length > 0) {
