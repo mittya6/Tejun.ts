@@ -222,6 +222,29 @@ describe('generateExcel', () => {
     expect(ws.getRow(1).getCell(2).value).toBe('手順1');
   });
 
+  it('リンクの部分だけ青字・下線のリッチテキストにする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-link.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
+    tplWs.getRow(1).getCell(1).font = { size: 9 };
+    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
+
+    const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n[手順書](https://example.com) を見る\n');
+    const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+    const ws = wb.worksheets[0];
+
+    expect(ws.getRow(1).getCell(1).value).toEqual({
+      richText: [
+        { text: '手順書', font: { size: 9, color: { argb: 'FF0563C1' }, underline: true } },
+        { text: ' を見る', font: { size: 9 } },
+      ],
+    });
+  });
+
   it('画像が無くても、展開した行の高さを文章の行数に合わせて広げる', async () => {
     const templatePath = path.join(tmpDir, 'custom-text-height.xlsx');
     const tplWb = new ExcelJS.Workbook();

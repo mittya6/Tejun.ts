@@ -64,6 +64,8 @@ export interface TextSegment {
   text: string;
   /** コードブロック（`<pre>`）の内容か */
   code: boolean;
+  /** リンク（`<a>`）の文字か */
+  link: boolean;
 }
 
 /**
@@ -72,11 +74,14 @@ export interface TextSegment {
  */
 const BLOCK_RE = /<pre\b[^>]*>([\s\S]*?)<\/pre>\n?|<(\/?)(p|li|ol|ul)\b[^>]*>\n?|<br\s*\/?>/gi;
 
+/** リンクの要素にマッチする正規表現。グループ1: `<a>` 要素の中身 */
+const LINK_RE = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
+
 /**
  * コードブロックでないテキストの断片を返す。空文字なら断片なし。
  */
 function plainSegments(text: string): TextSegment[] {
-  return text ? [{ text, code: false }] : [];
+  return text ? [{ text, code: false, link: false }] : [];
 }
 
 /**
@@ -94,7 +99,7 @@ function mergeSegments(segments: TextSegment[]): TextSegment[] {
   for (const segment of segments) {
     if (!segment.text) continue;
     const last = merged[merged.length - 1];
-    if (last?.code === segment.code) {
+    if (last?.code === segment.code && last.link === segment.link) {
       merged[merged.length - 1] = { ...last, text: last.text + segment.text };
     } else {
       merged.push(segment);
@@ -595,7 +600,9 @@ function appendLineBreaks(segments: TextSegment[], count: number): void {
   const text = joinSegments(segments);
   if (!text.trim()) return;
   const trailing = text.length - text.replace(/\n+$/, '').length;
-  if (trailing < count) segments.push({ text: '\n'.repeat(count - trailing), code: false });
+  if (trailing < count) {
+    segments.push({ text: '\n'.repeat(count - trailing), code: false, link: false });
+  }
 }
 
 /**
@@ -616,7 +623,26 @@ function tagBreakCount(tagName: string, closing: boolean, listDepth: number): nu
 }
 
 /**
- * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）とそれ以外の断片に分ける
+ * コードブロックでないHTMLをプレーンテキストに変換し、リンク（`<a>`）とそれ以外の断片に分ける
+ */
+function inlineSegments(html: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  let lastIndex = 0;
+  for (const match of html.matchAll(LINK_RE)) {
+    segments.push({
+      text: htmlToText(html.slice(lastIndex, match.index)),
+      code: false,
+      link: false,
+    });
+    segments.push({ text: htmlToText(match[1]), code: false, link: true });
+    lastIndex = match.index + match[0].length;
+  }
+  segments.push({ text: htmlToText(html.slice(lastIndex)), code: false, link: false });
+  return segments;
+}
+
+/**
+ * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）・リンク（`<a>`）・それ以外の断片に分ける
  *
  * ブロックの区切りは、リストの外では空行（改行2つ）、リストの中では改行1つにする。
  * markedがタグの後に入れる改行は区切りと重なるため捨てる。
@@ -627,23 +653,23 @@ function htmlToSegments(html: string): TextSegment[] {
   let listDepth = 0;
   let lastIndex = 0;
   for (const match of prepared.matchAll(BLOCK_RE)) {
-    segments.push({ text: htmlToText(prepared.slice(lastIndex, match.index)), code: false });
+    segments.push(...inlineSegments(prepared.slice(lastIndex, match.index)));
     lastIndex = match.index + match[0].length;
     const [, code, slash, name] = match;
     if (code !== undefined) {
       appendLineBreaks(segments, 1);
-      segments.push({ text: htmlToText(code), code: true });
+      segments.push({ text: htmlToText(code), code: true, link: false });
       appendLineBreaks(segments, blockBreakCount(listDepth));
     } else if (name === undefined) {
       // <br>
-      segments.push({ text: '\n', code: false });
+      segments.push({ text: '\n', code: false, link: false });
     } else {
       const tagName = name.toLowerCase();
       if (tagName === 'ol' || tagName === 'ul') listDepth += slash ? -1 : 1;
       appendLineBreaks(segments, tagBreakCount(tagName, slash === '/', listDepth));
     }
   }
-  segments.push({ text: htmlToText(prepared.slice(lastIndex)), code: false });
+  segments.push(...inlineSegments(prepared.slice(lastIndex)));
   return trimSegments(mergeSegments(segments));
 }
 

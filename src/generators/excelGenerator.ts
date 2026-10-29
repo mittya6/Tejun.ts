@@ -32,6 +32,9 @@ const CODE_FONT_NAME = 'Consolas';
 /** コードブロックの部分の文字色（ARGB） */
 const CODE_FONT_COLOR = 'FFC7254E';
 
+/** リンクの部分の文字色（ARGB）。Excelのハイパーリンクの既定色に合わせる */
+const LINK_FONT_COLOR = 'FF0563C1';
+
 /** ワークブックに追加済みの画像 */
 interface WorkbookImage extends ImageSize {
   id: number;
@@ -166,23 +169,36 @@ function cellText(value: ExcelJS.CellValue): string | undefined {
 }
 
 /**
- * 行ループのセルの値を作る。コードブロックを含む場合は、その部分だけ等幅フォント・色付きにしたリッチテキストにする。
+ * 断片のフォントを返す
  *
- * @param font テンプレートのセルのフォント。コードブロック以外の部分はこのフォントのまま、
- *   コードブロックの部分はこれのフォント名と色だけを変える
+ * @param font テンプレートのセルのフォント。コードブロックの部分はこれのフォント名と色を、
+ *   リンクの部分は色と下線を変える
+ */
+function segmentFont(
+  segment: TextSegment,
+  font: Partial<ExcelJS.Font> | undefined,
+): Partial<ExcelJS.Font> | undefined {
+  if (segment.code) return { ...font, name: CODE_FONT_NAME, color: { argb: CODE_FONT_COLOR } };
+  if (segment.link) return { ...font, color: { argb: LINK_FONT_COLOR }, underline: true };
+  return font;
+}
+
+/**
+ * 行ループのセルの値を作る。コードブロックやリンクを含む場合は、その部分だけ書式を変えたリッチテキストにする。
+ * リンクは見た目だけで、クリックしてもジャンプしない（Excelのハイパーリンクは1セルに1つしか付けられないため）。
+ *
+ * @param font テンプレートのセルのフォント
  */
 function toCellValue(
   text: string,
   segments: TextSegment[],
   font: Partial<ExcelJS.Font> | undefined,
 ): ExcelJS.CellValue {
-  if (!segments.some((segment) => segment.code)) return text;
+  if (!segments.some((segment) => segment.code || segment.link)) return text;
   return {
     richText: segments.map((segment) => ({
       text: segment.text,
-      font: segment.code
-        ? { ...font, name: CODE_FONT_NAME, color: { argb: CODE_FONT_COLOR } }
-        : font,
+      font: segmentFont(segment, font),
     })),
   };
 }

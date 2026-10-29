@@ -342,7 +342,7 @@ describe('renderCell', () => {
     const [chain] = expandLoopChains([ctx.root], ['##']);
     expect(renderCell('{{#}} {{##}}', ctx, chain)).toEqual({
       text: '見出し 手順',
-      segments: [{ text: '見出し 手順', code: false }],
+      segments: [{ text: '見出し 手順', code: false, link: false }],
       images: [],
     });
   });
@@ -392,9 +392,9 @@ ${md.replace('# 見出し\n\n', '')}`);
     const [chain] = expandLoopChains([ctx.root], ['##']);
     const { text, segments } = renderCell('{{##}}: {{##.body}}', ctx, chain);
     expect(segments).toEqual([
-      { text: '手順: 実行する\n\n', code: false },
-      { text: 'ls -la\ncd /tmp\n', code: true },
-      { text: '\n確認する', code: false },
+      { text: '手順: 実行する\n\n', code: false, link: false },
+      { text: 'ls -la\ncd /tmp\n', code: true, link: false },
+      { text: '\n確認する', code: false, link: false },
     ]);
     expect(text).toBe(replaceCellVariables('{{##}}: {{##.body}}', ctx, chain));
   });
@@ -402,7 +402,22 @@ ${md.replace('# 見出し\n\n', '')}`);
   it('末尾のコードブロックの後ろの空白は取り除く', () => {
     const ctx = ctxFrom('# 見出し\n\n## 手順\n\n```\nls\n```\n');
     const [chain] = expandLoopChains([ctx.root], ['##']);
-    expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([{ text: 'ls', code: true }]);
+    expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([
+      { text: 'ls', code: true, link: false },
+    ]);
+  });
+
+  it('リンクの文字を link: true の断片に分ける', () => {
+    const ctx = ctxFrom(
+      '# 見出し\n\n## 手順\n\n[手順書](https://example.com/?a=1&b=2) と https://example.com を見る\n',
+    );
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([
+      { text: '手順書', code: false, link: true },
+      { text: ' と ', code: false, link: false },
+      { text: 'https://example.com', code: false, link: true },
+      { text: ' を見る', code: false, link: false },
+    ]);
   });
 });
 
