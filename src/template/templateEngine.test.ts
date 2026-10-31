@@ -419,6 +419,34 @@ ${md.replace('# 見出し\n\n', '')}`);
       { text: ' を見る', code: false, link: false },
     ]);
   });
+
+  it('表を罫線文字のテキストにして table: true の断片に分ける', () => {
+    const ctx = ctxFrom(
+      '# 見出し\n\n## 手順\n\n設定する\n\n| 名前 | 値 |\n|:--|--:|\n| a<br>b | `c&d` |\n\n確認する\n',
+    );
+    const [chain] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}', ctx, chain).segments).toEqual([
+      { text: '設定する\n\n', code: false, link: false },
+      {
+        text: ['┌───┬───┐', '│ 名前 │   値 │', '├───┼───┤', '│ a b  │  c&d │', '└───┴───┘'].join(
+          '\n',
+        ),
+        code: false,
+        link: false,
+        table: true,
+      },
+      { text: '\n\n確認する', code: false, link: false },
+    ]);
+  });
+
+  it('見出しの無いHTMLの表や行の無い表も変換できる', () => {
+    const ctx = ctxFrom(
+      '# 見出し\n\n## 手順\n\n<table><tr><td>a</td></tr></table>\n\n## 空\n\n<table></table>\n',
+    );
+    const [first, empty] = expandLoopChains([ctx.root], ['##']);
+    expect(renderCell('{{##.body}}', ctx, first).text).toBe('┌──┐\n│ a  │\n└──┘');
+    expect(renderCell('{{##.body}}', ctx, empty).segments).toEqual([]);
+  });
 });
 
 describe('replaceCellVariables', () => {

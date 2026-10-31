@@ -222,6 +222,35 @@ describe('generateExcel', () => {
     expect(ws.getRow(1).getCell(2).value).toBe('手順1');
   });
 
+  it('表の部分だけMS ゴシックのリッチテキストにする', async () => {
+    const templatePath = path.join(tmpDir, 'custom-table.xlsx');
+    const tplWb = new ExcelJS.Workbook();
+    const tplWs = tplWb.addWorksheet('テンプレート');
+    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
+    tplWs.getRow(1).getCell(1).font = { size: 9, name: 'Calibri', scheme: 'minor', charset: 1 };
+    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
+    await tplWb.xlsx.writeFile(templatePath);
+
+    const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n設定する\n\n| 名前 |\n|---|\n| a |\n');
+    const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+    const ws = wb.worksheets[0];
+
+    expect(ws.getRow(1).getCell(1).value).toEqual({
+      richText: [
+        {
+          text: '設定する\n\n',
+          font: { size: 9, name: 'Calibri', scheme: 'minor', charset: 1 },
+        },
+        {
+          text: '┌───┐\n│ 名前 │\n├───┤\n│ a    │\n└───┘',
+          font: { size: 9, name: 'ＭＳ ゴシック', charset: 128 },
+        },
+      ],
+    });
+  });
+
   it('リンクの部分だけ青字・下線のリッチテキストにする', async () => {
     const templatePath = path.join(tmpDir, 'custom-link.xlsx');
     const tplWb = new ExcelJS.Workbook();

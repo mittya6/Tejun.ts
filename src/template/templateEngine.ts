@@ -1,6 +1,8 @@
 import { TemplateError } from '../utils/errors';
 import { findNodePaths } from '../parser/docTree';
 import { extractImageSrcs, extractImageTags } from '../utils/imageUtils';
+import { formatTextTable } from './textTable';
+import type { TableAlign } from './textTable';
 import type { DocNode, NodeSymbol, TemplateContext } from '../parser/types';
 
 /** HTMLエスケープ対象文字 */
@@ -66,16 +68,29 @@ export interface TextSegment {
   code: boolean;
   /** リンク（`<a>`）の文字か */
   link: boolean;
+  /** 表（`<table>`）を罫線文字で描いたテキストか */
+  table?: boolean;
 }
 
 /**
  * 改行に変換するブロックのタグにマッチする正規表現。markedがタグの後に入れる改行も含める。
- * グループ1: `<pre>` 要素の中身、グループ2: 閉じタグの `/`、グループ3: `p` / `li` / `ol` / `ul` のタグ名
+ * グループ1: `<pre>` 要素の中身、グループ2: 閉じタグの `/`、グループ3: `p` / `li` / `ol` / `ul` のタグ名、
+ * グループ4: `<table>` 要素の中身
  */
-const BLOCK_RE = /<pre\b[^>]*>([\s\S]*?)<\/pre>\n?|<(\/?)(p|li|ol|ul)\b[^>]*>\n?|<br\s*\/?>/gi;
+const BLOCK_RE =
+  /<pre\b[^>]*>([\s\S]*?)<\/pre>\n?|<(\/?)(p|li|ol|ul)\b[^>]*>\n?|<br\s*\/?>|<table\b[^>]*>([\s\S]*?)<\/table>\n?/gi;
 
 /** リンクの要素にマッチする正規表現。グループ1: `<a>` 要素の中身 */
 const LINK_RE = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
+
+/** 表の行の要素にマッチする正規表現。グループ1: `<tr>` 要素の中身 */
+const TABLE_ROW_RE = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+
+/** 表のセルの要素にマッチする正規表現。グループ2: 属性、グループ3: セルの中身 */
+const TABLE_CELL_RE = /<(th|td)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+
+/** セルの属性から文字揃えを取り出す正規表現 */
+const TABLE_ALIGN_RE = /\balign\s*=\s*["']?(left|center|right)\b/i;
 
 /**
  * コードブロックでないテキストの断片を返す。空文字なら断片なし。
@@ -99,7 +114,7 @@ function mergeSegments(segments: TextSegment[]): TextSegment[] {
   for (const segment of segments) {
     if (!segment.text) continue;
     const last = merged[merged.length - 1];
-    if (last?.code === segment.code && last.link === segment.link) {
+    if (last?.code === segment.code && last.link === segment.link && last.table === segment.table) {
       merged[merged.length - 1] = { ...last, text: last.text + segment.text };
     } else {
       merged.push(segment);
@@ -642,7 +657,26 @@ function inlineSegments(html: string): TextSegment[] {
 }
 
 /**
- * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）・リンク（`<a>`）・それ以外の断片に分ける
+ * `<table>` 要素の中身を、罫線文字を使ったテキストに変換する。
+ * セルの中は1行のプレーンテキストにする（`<br>` や改行は空白に置き換える）。
+ *
+ * @param html `<table>` 要素の中身
+ */
+function tableToText(html: string): string {
+  const rows = Array.from(html.matchAll(TABLE_ROW_RE), ([, row]) =>
+    Array.from(row.matchAll(TABLE_CELL_RE), ([, , attrs, cell]) => ({
+      text: htmlToText(cell.replace(/<br\s*\/?>/gi, ' '))
+        .replace(/\s+/g, ' ')
+        .trim(),
+      align: (TABLE_ALIGN_RE.exec(attrs)?.[1].toLowerCase() ?? 'left') as TableAlign,
+    })),
+  );
+  return formatTextTable(rows);
+}
+
+/**
+ * `stripHtml` と同じくプレーンテキストに変換し、コードブロック（`<pre>`）・表（`<table>`）・リンク（`<a>`）・
+ * それ以外の断片に分ける
  *
  * ブロックの区切りは、リストの外では空行（改行2つ）、リストの中では改行1つにする。
  * markedがタグの後に入れる改行は区切りと重なるため捨てる。
@@ -655,10 +689,14 @@ function htmlToSegments(html: string): TextSegment[] {
   for (const match of prepared.matchAll(BLOCK_RE)) {
     segments.push(...inlineSegments(prepared.slice(lastIndex, match.index)));
     lastIndex = match.index + match[0].length;
-    const [, code, slash, name] = match;
+    const [, code, slash, name, table] = match;
     if (code !== undefined) {
       appendLineBreaks(segments, 1);
       segments.push({ text: htmlToText(code), code: true, link: false });
+      appendLineBreaks(segments, blockBreakCount(listDepth));
+    } else if (table !== undefined) {
+      appendLineBreaks(segments, 1);
+      segments.push({ text: tableToText(table), code: false, link: false, table: true });
       appendLineBreaks(segments, blockBreakCount(listDepth));
     } else if (name === undefined) {
       // <br>
