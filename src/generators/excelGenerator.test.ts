@@ -320,6 +320,15 @@ describe('generateExcel', () => {
     expect(wb.worksheets[0].properties.dyDescent).toBe(0.25);
   });
 
+  it('ブックとシートの画面設定を書き出す（無いと表示スケール150%のExcelで行が2/3の高さになる）', async () => {
+    const outPath = await generateExcel(parseMarkdown('# 見出し\n'), inputFile, outputDir);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+
+    expect(wb.views).toHaveLength(1);
+    expect(wb.worksheets[0].views).toHaveLength(1);
+  });
+
   describe('画像の貼り付け', () => {
     const IMAGE_MD = `# ログイン手順
 

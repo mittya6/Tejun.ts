@@ -42,11 +42,22 @@ const TABLE_FONT_CHARSET = 128;
 /** リンクの部分の文字色（ARGB）。Excelのハイパーリンクの既定色に合わせる */
 const LINK_FONT_COLOR = 'FF0563C1';
 
-/**
- * シートの既定の `x14ac:dyDescent`（pt）。exceljsが各行に書く値に合わせる。
- * exceljsの既定値の55は、表示スケールが150%のExcelで行が2/3の高さになる原因の候補として変更している
- */
+/** シートの既定の `x14ac:dyDescent`（pt）。exceljsが各行に書く値に合わせる */
 const ROW_DY_DESCENT = 0.25;
+
+/**
+ * ブックの画面設定。シートの画面設定と合わせて書かないと、Windowsの表示スケールが150%のExcelで
+ * 全ての行が2/3の高さで表示され、画像がセルからはみ出す。大きさの単位はExcelの1/20pt
+ */
+const WORKBOOK_VIEW: ExcelJS.WorkbookView = {
+  x: 0,
+  y: 0,
+  width: 28800,
+  height: 12300,
+  firstSheet: 0,
+  activeTab: 0,
+  visibility: 'visible',
+};
 
 /** ワークブックに追加済みの画像 */
 interface WorkbookImage extends ImageSize {
@@ -399,6 +410,7 @@ async function buildFromTemplate(
  */
 function copyWorksheet(src: ExcelJS.Worksheet, dest: ExcelJS.Worksheet): void {
   dest.properties.dyDescent = ROW_DY_DESCENT;
+  dest.views = [{ state: 'normal' }];
   dest.pageSetup = { ...src.pageSetup };
   src.columns.forEach((col, i) => {
     if (col.width) dest.getColumn(i + 1).width = col.width;
@@ -440,6 +452,7 @@ export async function generateExcel(
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Tejun.ts';
   workbook.created = new Date();
+  workbook.views = [WORKBOOK_VIEW];
 
   try {
     await buildFromTemplate(workbook, doc, basePath, templatePath ?? DEFAULT_EXCEL_TEMPLATE_PATH);
