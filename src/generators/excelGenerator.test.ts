@@ -442,6 +442,105 @@ describe('generateExcel', () => {
       }
     });
 
+    describe('行ループ外のセル', () => {
+      /** 前文の画像（横長）を書き出す */
+      async function writeRootImage(): Promise<void> {
+        const create = { width: 300, height: 100, channels: 3 as const, background: '#f00' };
+        await sharp({ create }).png().toFile(path.join(tmpDir, 'root.png'));
+      }
+
+      /** テンプレートのワークブックを書き出してExcelを生成し、出力を読み直す */
+      async function generate(tplWb: ExcelJS.Workbook, md: string): Promise<ExcelJS.Worksheet> {
+        const templatePath = path.join(tmpDir, 'custom-root.xlsx');
+        await tplWb.xlsx.writeFile(templatePath);
+        const outPath = await generateExcel(
+          parseMarkdown(md),
+          inputFile,
+          outputDir,
+          templatePath,
+        );
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.readFile(outPath);
+        return wb.worksheets[0];
+      }
+
+      const ROOT_MD = '前文 ![図](./root.png)\n\n# 見出し\n\n## 手順1\n\n本文\n';
+
+      it('結合セルの {{root.body}} の画像を結合範囲の幅で中央に置き、行を広げる', async () => {
+        await writeRootImage();
+        const tplWb = new ExcelJS.Workbook();
+        const tplWs = tplWb.addWorksheet('テンプレート');
+        tplWs.getColumn(1).width = 20;
+        tplWs.getColumn(2).width = 30;
+        tplWs.getColumn(3).width = 40;
+        tplWs.getRow(1).height = 20;
+        tplWs.getRow(1).getCell(1).value = '{{root.body}}';
+        tplWs.mergeCells('A1:C1');
+
+        const ws = await generate(tplWb, ROOT_MD);
+
+        const [image] = ws.getImages();
+        // 列の幅は 145, 215, 285px で合計645px。画像の幅は80%の516px
+        expect(image.range.tl.nativeCol).toBe(0);
+        expect(image.range.br.nativeCol).toBe(2);
+        const left = image.range.tl.nativeColOff / 9525;
+        const right = 145 + 215 + image.range.br.nativeColOff / 9525;
+        expect(right - left).toBe(516);
+        expect(left).toBe(65);
+        const boxHeight = (image.range.br.nativeRowOff - image.range.tl.nativeRowOff) / 9525;
+        expect((right - left) / boxHeight).toBeCloseTo(3, 1);
+        expect(image.range.br.nativeRowOff / 9525).toBeLessThan(ws.getRow(1).height! / 0.75);
+      });
+
+      it('行ループが無いテンプレートでも画像を貼り付ける', async () => {
+        await writeRootImage();
+        const tplWb = new ExcelJS.Workbook();
+        tplWb.addWorksheet('テンプレート').getRow(1).getCell(1).value = '{{root.body}}';
+
+        const ws = await generate(tplWb, ROOT_MD);
+
+        expect(ws.getImages()).toHaveLength(1);
+      });
+
+      it('行ループより下の行の画像は、展開後の行に貼り付ける', async () => {
+        await writeRootImage();
+        const tplWb = new ExcelJS.Workbook();
+        const tplWs = tplWb.addWorksheet('テンプレート');
+        tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##}}';
+        tplWs.getRow(2).getCell(1).value = '{{root.body}}';
+
+        const ws = await generate(
+          tplWb,
+          '前文 ![図](./root.png)\n\n# 見出し\n\n## 手順1\n\n## 手順2\n\n## 手順3\n',
+        );
+
+        const [image] = ws.getImages();
+        expect(image.range.tl.nativeRow).toBe(3);
+        expect(ws.getRow(4).getCell(1).value).toContain('前文');
+        expect(ws.getRow(4).height! / 0.75).toBeGreaterThan(image.range.br.nativeRowOff / 9525);
+      });
+
+      it('文章に合わせて行を広げるが、変数の無いセルの行とテンプレートより低い高さには変えない', async () => {
+        const tplWb = new ExcelJS.Workbook();
+        const tplWs = tplWb.addWorksheet('テンプレート');
+        tplWs.getColumn(1).width = 20;
+        const wrap = { wrapText: true };
+        tplWs.getRow(1).getCell(1).value = '{{root.body}}';
+        tplWs.getRow(1).getCell(1).alignment = wrap;
+        tplWs.getRow(2).getCell(1).value = '{{root.body}}';
+        tplWs.getRow(2).getCell(1).alignment = wrap;
+        tplWs.getRow(2).height = 300;
+        tplWs.getRow(3).getCell(1).value = '変数の無い\n長い\n文章';
+        tplWs.getRow(3).height = 15;
+
+        const ws = await generate(tplWb, `${'長い前文です。'.repeat(20)}\n\n# 見出し\n`);
+
+        expect(ws.getRow(1).height).toBeGreaterThan(15);
+        expect(ws.getRow(2).height).toBe(300);
+        expect(ws.getRow(3).height).toBe(15);
+      });
+    });
+
     it('読み込めない画像は警告を出してスキップし、生成は続ける', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n> ![無い](./missing.png)\n');

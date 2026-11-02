@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { columnWidthPx, estimateTextHeightPx, layoutImages } from './excelImageLayout';
+import {
+  columnWidthPx,
+  estimateTextHeightPx,
+  layoutImages,
+  locateInColumns,
+} from './excelImageLayout';
 
 /** 1ptあたりのpx */
 const PX_PER_PT = 96 / 72;
@@ -11,6 +16,18 @@ describe('columnWidthPx', () => {
 
   it('未設定ならExcelの既定の列幅を使う', () => {
     expect(columnWidthPx()).toBe(64);
+  });
+});
+
+describe('locateInColumns', () => {
+  it('左端からの距離を、含まれる列とその列の左端からの距離に換算する', () => {
+    expect(locateInColumns([100, 200, 50], 30)).toEqual({ index: 0, offset: 30 });
+    expect(locateInColumns([100, 200, 50], 100)).toEqual({ index: 1, offset: 0 });
+    expect(locateInColumns([100, 200, 50], 320)).toEqual({ index: 2, offset: 20 });
+  });
+
+  it('右端を超える距離は最後の列の中で返す', () => {
+    expect(locateInColumns([100, 200], 350)).toEqual({ index: 1, offset: 250 });
   });
 });
 

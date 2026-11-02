@@ -7,13 +7,14 @@ import {
   expandLoopChains,
   extractRowLoop,
   renderCell,
-  replaceCellVariables,
 } from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
 import {
   columnWidthPx,
+  DEFAULT_COLUMN_WIDTH,
   estimateTextHeightPx,
   layoutImages,
+  locateInColumns,
   textRowHeightPt,
 } from './excelImageLayout';
 import type { ImageSize } from './excelImageLayout';
@@ -54,7 +55,7 @@ interface SheetImage {
   range: ExcelJS.ImageRange;
 }
 
-/** 行ループの行のうち、画像を含むセル */
+/** 画像を含むセル */
 interface CellImages {
   /** 行番号（1始まり） */
   row: number;
@@ -117,6 +118,22 @@ function cellAnchor(row: number, col: number, x: number, y: number): ExcelJS.Anc
 }
 
 /**
+ * セルが占める各列の幅（文字数、左から順）を返す。結合セルは結合範囲の全ての列を返す。
+ *
+ * @param row 行番号（1始まり）
+ * @param col 列番号（1始まり）。結合セルの場合は左端の列
+ */
+function cellColumnWidths(ws: ExcelJS.Worksheet, row: number, col: number): number[] {
+  const wsRow = ws.getRow(row);
+  const master = wsRow.getCell(col);
+  const widths = [ws.getColumn(col).width ?? DEFAULT_COLUMN_WIDTH];
+  for (let c = col + 1; wsRow.getCell(c).master === master; c++) {
+    widths.push(ws.getColumn(c).width ?? DEFAULT_COLUMN_WIDTH);
+  }
+  return widths;
+}
+
+/**
  * セルの文章の下に画像を縦に並べる位置を求め、行の高さを画像が収まるよう広げる
  *
  * @returns シートに貼り付ける画像（セルに並べる順）
@@ -129,30 +146,40 @@ function placeImagesInCell(
 ): SheetImage[] {
   const wsRow = ws.getRow(row);
   const cell = wsRow.getCell(col);
-  const columnWidth = ws.getColumn(col).width;
+  const columnWidths = cellColumnWidths(ws, row, col);
+  const widthsPx = columnWidths.map((width) => columnWidthPx(width));
   const textHeight = estimateTextHeightPx(
     cellText(cell.value) ?? '',
-    columnWidth,
+    columnWidths.reduce((sum, width) => sum + width, 0),
     cell.font?.size,
     cell.alignment?.wrapText,
   );
-  const layout = layoutImages(images, columnWidthPx(columnWidth), textHeight);
+  const layout = layoutImages(
+    images,
+    widthsPx.reduce((sum, width) => sum + width, 0),
+    textHeight,
+  );
   wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
 
+  // Excelは列の幅を超えるずらし量を列の幅で打ち切るため、結合セルでは位置が含まれる列を指定する
+  const anchorAt = (x: number, y: number): ExcelJS.Anchor => {
+    const { index, offset } = locateInColumns(widthsPx, x);
+    return cellAnchor(row, col + index, offset, y);
+  };
   return layout.images.map((placed, i) => ({
     id: images[i].id,
     // 大きさではなく右下の位置で指定する。Windowsの表示スケールによって行の高さの見え方が変わっても、
     // Excelが画像をセルの中に収めて描くようにするため
     range: {
-      tl: cellAnchor(row, col, placed.x, placed.y),
-      br: cellAnchor(row, col, placed.x + placed.width, placed.y + placed.height),
+      tl: anchorAt(placed.x, placed.y),
+      br: anchorAt(placed.x + placed.width, placed.y + placed.height),
       editAs: 'oneCell',
     },
   }));
 }
 
 /**
- * 行ループの各セルに、そのセルの変数に含まれていた画像を貼り付ける。同じ画像は一度だけ読み込む。
+ * 各セルに、そのセルの変数に含まれていた画像を貼り付ける。同じ画像は一度だけ読み込む。
  */
 async function embedCellImages(
   workbook: ExcelJS.Workbook,
@@ -268,20 +295,32 @@ async function buildFromTemplate(
   });
 
   // ヘッダー変数置換（行ループの行は行ごとの値で別途置換するため対象外）
+  const headerImages: CellImages[] = [];
   templateWs.eachRow((row, rowNum) => {
     if (rowNum === templateRowNumber) return;
-    row.eachCell((cell) => {
+    row.eachCell((cell, colNum) => {
       const text = cellText(cell.value);
       if (text === undefined) return;
-      const replaced = replaceCellVariables(text, ctx);
+      const { text: replaced, images } = renderCell(text, ctx, [ctx.root]);
       // 変数を含まないリッチテキストはセル内の書式を保つため書き換えない
-      if (replaced !== text) cell.value = replaced;
+      if (replaced === text) return;
+      cell.value = replaced;
+      if (images.length > 0) headerImages.push({ row: rowNum, col: colNum, srcs: images });
+      // 文章が収まるよう行を広げる（テンプレート行の高さより低くはしない）
+      const textHeightPx = estimateTextHeightPx(
+        replaced,
+        cellColumnWidths(templateWs, rowNum, colNum).reduce((sum, width) => sum + width, 0),
+        cell.font?.size,
+        cell.alignment?.wrapText,
+      );
+      row.height = Math.max(row.height ?? 0, textRowHeightPt(textHeightPx));
     });
   });
 
   if (!rowLoop) {
     const newWs = workbook.addWorksheet(templateWs.name);
     copyWorksheet(templateWs, newWs);
+    await embedCellImages(workbook, newWs, headerImages, basePath);
     return;
   }
 
@@ -305,7 +344,10 @@ async function buildFromTemplate(
   templateWs.spliceRows(templateRowNumber, 1);
 
   const chains = expandLoopChains([ctx.root], rowLoop.symbols);
-  const cellImages: CellImages[] = [];
+  // 行ループより下の行は、展開した行の分だけ下にずれる
+  const cellImages: CellImages[] = headerImages.map((cell) =>
+    cell.row > templateRowNumber ? { ...cell, row: cell.row + chains.length - 1 } : cell,
+  );
   let insertAt = templateRowNumber;
   chains.forEach((chain, i) => {
     templateWs.spliceRows(insertAt, 0, []);

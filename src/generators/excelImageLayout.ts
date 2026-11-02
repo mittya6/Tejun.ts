@@ -17,7 +17,7 @@ const MAX_ROW_HEIGHT_PT = 409;
 const PX_PER_PT = 96 / 72;
 
 /** 列幅が未設定のときのExcelの既定の列幅（文字数） */
-const DEFAULT_COLUMN_WIDTH = 8.43;
+export const DEFAULT_COLUMN_WIDTH = 8.43;
 
 /** フォントサイズが未設定のときの既定値（pt）。列幅の1文字分はこのサイズの文字の幅 */
 const DEFAULT_FONT_SIZE = 11;
@@ -41,6 +41,23 @@ const WIDE_CHAR_MIN_CODE = 0x100;
  */
 export function columnWidthPx(width = DEFAULT_COLUMN_WIDTH): number {
   return Math.round(width * 7 + 5);
+}
+
+/**
+ * 結合セルの左端からの距離を、それが含まれる列と、その列の左端からの距離に換算する
+ *
+ * @param widthsPx 結合セルの各列の幅（px、左から順）
+ * @param x 結合セルの左端からの距離（px）
+ * @returns 列の位置（0始まり）と、その列の左端からの距離（px）
+ */
+export function locateInColumns(widthsPx: number[], x: number): { index: number; offset: number } {
+  let offset = x;
+  let index = 0;
+  while (index < widthsPx.length - 1 && offset >= widthsPx[index]) {
+    offset -= widthsPx[index];
+    index++;
+  }
+  return { index, offset };
 }
 
 /**
