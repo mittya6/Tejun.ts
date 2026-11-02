@@ -42,6 +42,12 @@ const TABLE_FONT_CHARSET = 128;
 /** リンクの部分の文字色（ARGB）。Excelのハイパーリンクの既定色に合わせる */
 const LINK_FONT_COLOR = 'FF0563C1';
 
+/**
+ * シートの既定の `x14ac:dyDescent`（pt）。exceljsが各行に書く値に合わせる。
+ * exceljsの既定値の55は、表示スケールが150%のExcelで行が2/3の高さになる原因の候補として変更している
+ */
+const ROW_DY_DESCENT = 0.25;
+
 /** ワークブックに追加済みの画像 */
 interface WorkbookImage extends ImageSize {
   id: number;
@@ -392,6 +398,7 @@ async function buildFromTemplate(
  * ワークシートの内容を別のワークシートにコピーする
  */
 function copyWorksheet(src: ExcelJS.Worksheet, dest: ExcelJS.Worksheet): void {
+  dest.properties.dyDescent = ROW_DY_DESCENT;
   dest.pageSetup = { ...src.pageSetup };
   src.columns.forEach((col, i) => {
     if (col.width) dest.getColumn(i + 1).width = col.width;

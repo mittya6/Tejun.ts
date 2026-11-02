@@ -312,6 +312,14 @@ describe('generateExcel', () => {
     expect(ws.getRow(2).height).toBe(55);
   });
 
+  it('シートの x14ac:dyDescent をexceljsの既定値の55にしない', async () => {
+    const outPath = await generateExcel(parseMarkdown('# 見出し\n'), inputFile, outputDir);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(outPath);
+
+    expect(wb.worksheets[0].properties.dyDescent).toBe(0.25);
+  });
+
   describe('画像の貼り付け', () => {
     const IMAGE_MD = `# ログイン手順
 
