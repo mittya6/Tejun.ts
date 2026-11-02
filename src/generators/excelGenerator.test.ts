@@ -337,6 +337,11 @@ describe('generateExcel', () => {
       );
     }
 
+    /** 貼り付けられた画像の大きさ（px）を返す。型定義の `getImages` は右下の位置で指定した場合だけを表す */
+    function imageExt(range: ExcelJS.ImageRange): ExcelJS.ImagePosition['ext'] {
+      return (range as unknown as ExcelJS.ImagePosition).ext;
+    }
+
     /** 列（1始まり）ごとに、貼り付けられた画像を上から順に返す */
     function imagesInColumn(ws: ExcelJS.Worksheet, col: number) {
       return ws
@@ -407,13 +412,12 @@ describe('generateExcel', () => {
       expect(images).toHaveLength(4);
       expect(images[0].range.tl.nativeRowOff).toBe(8 * 9525);
       expect(ws.getRow(1).getCell(3).value).toBe('');
-      // 右下も同じセルの中で指定し、表示スケールで行の高さの見え方が変わってもセルからはみ出さない
+      // 大きさで指定し（Excelで行が低く表示されても潰れない）、ファイルの行の高さには収まる
       const rowHeightPx = ws.getRow(1).height! / 0.75;
       for (const { range } of images) {
-        expect(range.br.nativeRow).toBe(range.tl.nativeRow);
-        expect(range.br.nativeCol).toBe(range.tl.nativeCol);
-        expect(range.br.nativeRowOff).toBeGreaterThan(range.tl.nativeRowOff);
-        expect(range.br.nativeRowOff / 9525).toBeLessThan(rowHeightPx);
+        const { height } = imageExt(range);
+        expect(height).toBeGreaterThan(0);
+        expect(range.tl.nativeRowOff / 9525 + height).toBeLessThan(rowHeightPx);
       }
     });
 
@@ -436,9 +440,8 @@ describe('generateExcel', () => {
       const media = wb.model.media as unknown as Array<{ buffer: Buffer }>;
       for (const { imageId, range } of images) {
         const { width, height } = await sharp(media[Number(imageId)].buffer).metadata();
-        const boxWidth = range.br.nativeColOff - range.tl.nativeColOff;
-        const boxHeight = range.br.nativeRowOff - range.tl.nativeRowOff;
-        expect(boxWidth / boxHeight).toBeCloseTo(width / height, 1);
+        const ext = imageExt(range);
+        expect(ext.width / ext.height).toBeCloseTo(width / height, 1);
       }
     });
 
@@ -482,14 +485,13 @@ describe('generateExcel', () => {
         const [image] = ws.getImages();
         // 列の幅は 145, 215, 285px で合計645px。画像の幅は80%の516px
         expect(image.range.tl.nativeCol).toBe(0);
-        expect(image.range.br.nativeCol).toBe(2);
-        const left = image.range.tl.nativeColOff / 9525;
-        const right = 145 + 215 + image.range.br.nativeColOff / 9525;
-        expect(right - left).toBe(516);
-        expect(left).toBe(65);
-        const boxHeight = (image.range.br.nativeRowOff - image.range.tl.nativeRowOff) / 9525;
-        expect((right - left) / boxHeight).toBeCloseTo(3, 1);
-        expect(image.range.br.nativeRowOff / 9525).toBeLessThan(ws.getRow(1).height! / 0.75);
+        const ext = imageExt(image.range);
+        expect(ext.width).toBe(516);
+        expect(image.range.tl.nativeColOff / 9525).toBe(65);
+        expect(ext.width / ext.height).toBeCloseTo(3, 1);
+        expect(image.range.tl.nativeRowOff / 9525 + ext.height).toBeLessThan(
+          ws.getRow(1).height! / 0.75,
+        );
       });
 
       it('行ループが無いテンプレートでも画像を貼り付ける', async () => {
@@ -517,7 +519,9 @@ describe('generateExcel', () => {
         const [image] = ws.getImages();
         expect(image.range.tl.nativeRow).toBe(3);
         expect(ws.getRow(4).getCell(1).value).toContain('前文');
-        expect(ws.getRow(4).height! / 0.75).toBeGreaterThan(image.range.br.nativeRowOff / 9525);
+        expect(ws.getRow(4).height! / 0.75).toBeGreaterThan(
+          image.range.tl.nativeRowOff / 9525 + imageExt(image.range).height,
+        );
       });
 
       it('文章に合わせて行を広げるが、変数の無いセルの行とテンプレートより低い高さには変えない', async () => {

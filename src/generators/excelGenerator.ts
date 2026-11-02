@@ -52,7 +52,7 @@ interface SheetImage {
   /** ワークブックに追加済みの画像のID */
   id: number;
   /** 貼り付ける範囲 */
-  range: ExcelJS.ImageRange;
+  range: ExcelJS.ImagePosition & { editAs: string };
 }
 
 /** 画像を含むセル */
@@ -161,21 +161,20 @@ function placeImagesInCell(
   );
   wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
 
-  // Excelは列の幅を超えるずらし量を列の幅で打ち切るため、結合セルでは位置が含まれる列を指定する
-  const anchorAt = (x: number, y: number): ExcelJS.Anchor => {
-    const { index, offset } = locateInColumns(widthsPx, x);
-    return cellAnchor(row, col + index, offset, y);
-  };
-  return layout.images.map((placed, i) => ({
-    id: images[i].id,
-    // 大きさではなく右下の位置で指定する。Windowsの表示スケールによって行の高さの見え方が変わっても、
-    // Excelが画像をセルの中に収めて描くようにするため
-    range: {
-      tl: anchorAt(placed.x, placed.y),
-      br: anchorAt(placed.x + placed.width, placed.y + placed.height),
-      editAs: 'oneCell',
-    },
-  }));
+  return layout.images.map((placed, i) => {
+    // Excelは列の幅を超えるずらし量を列の幅で打ち切るため、結合セルでは位置が含まれる列を指定する
+    const { index, offset } = locateInColumns(widthsPx, placed.x);
+    return {
+      id: images[i].id,
+      // 右下の位置ではなく大きさで指定する。右下の位置で指定すると、Excelで行がファイルの高さより
+      // 低く表示されたときに、画像がセルの下端で打ち切られて潰れるため
+      range: {
+        tl: cellAnchor(row, col + index, offset, placed.y),
+        ext: { width: placed.width, height: placed.height },
+        editAs: 'oneCell',
+      },
+    };
+  });
 }
 
 /**
