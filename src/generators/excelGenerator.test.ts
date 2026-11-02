@@ -417,6 +417,31 @@ describe('generateExcel', () => {
       }
     });
 
+    it('同じ画像を離れた手順で使い、別の画像を続けて使っても、枠と画像の比率が一致する', async () => {
+      const sizes = { 'a.png': [200, 600], 'b.png': [300, 300], 'c.png': [600, 200] };
+      for (const [name, [width, height]] of Object.entries(sizes)) {
+        const create = { width, height, channels: 3 as const, background: '#f00' };
+        await sharp({ create }).png().toFile(path.join(tmpDir, name));
+      }
+      const md = ['a.png', 'b.png', 'a.png', 'c.png', 'c.png']
+        .map((name, i) => `## 手順${i}\n\n![図](./${name})\n`)
+        .join('\n');
+
+      const outPath = await generateExcel(parseMarkdown(`# 見出し\n\n${md}`), inputFile, outputDir);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(outPath);
+
+      const images = wb.worksheets[0].getImages();
+      expect(images).toHaveLength(5);
+      const media = wb.model.media as unknown as Array<{ buffer: Buffer }>;
+      for (const { imageId, range } of images) {
+        const { width, height } = await sharp(media[Number(imageId)].buffer).metadata();
+        const boxWidth = range.br.nativeColOff - range.tl.nativeColOff;
+        const boxHeight = range.br.nativeRowOff - range.tl.nativeRowOff;
+        expect(boxWidth / boxHeight).toBeCloseTo(width / height, 1);
+      }
+    });
+
     it('読み込めない画像は警告を出してスキップし、生成は続ける', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n> ![無い](./missing.png)\n');

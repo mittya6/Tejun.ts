@@ -46,6 +46,14 @@ interface WorkbookImage extends ImageSize {
   id: number;
 }
 
+/** シートに貼り付ける画像 */
+interface SheetImage {
+  /** ワークブックに追加済みの画像のID */
+  id: number;
+  /** 貼り付ける範囲 */
+  range: ExcelJS.ImageRange;
+}
+
 /** 行ループの行のうち、画像を含むセル */
 interface CellImages {
   /** 行番号（1始まり） */
@@ -109,14 +117,16 @@ function cellAnchor(row: number, col: number, x: number, y: number): ExcelJS.Anc
 }
 
 /**
- * セルの文章の下に画像を縦に並べて貼り付け、行の高さを画像が収まるよう広げる
+ * セルの文章の下に画像を縦に並べる位置を求め、行の高さを画像が収まるよう広げる
+ *
+ * @returns シートに貼り付ける画像（セルに並べる順）
  */
 function placeImagesInCell(
   ws: ExcelJS.Worksheet,
   row: number,
   col: number,
   images: WorkbookImage[],
-): void {
+): SheetImage[] {
   const wsRow = ws.getRow(row);
   const cell = wsRow.getCell(col);
   const columnWidth = ws.getColumn(col).width;
@@ -129,15 +139,16 @@ function placeImagesInCell(
   const layout = layoutImages(images, columnWidthPx(columnWidth), textHeight);
   wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
 
-  layout.images.forEach((placed, i) => {
+  return layout.images.map((placed, i) => ({
+    id: images[i].id,
     // 大きさではなく右下の位置で指定する。Windowsの表示スケールによって行の高さの見え方が変わっても、
     // Excelが画像をセルの中に収めて描くようにするため
-    ws.addImage(images[i].id, {
+    range: {
       tl: cellAnchor(row, col, placed.x, placed.y),
       br: cellAnchor(row, col, placed.x + placed.width, placed.y + placed.height),
       editAs: 'oneCell',
-    });
-  });
+    },
+  }));
 }
 
 /**
@@ -150,6 +161,7 @@ async function embedCellImages(
   basePath: string,
 ): Promise<void> {
   const loaded = new Map<string, Promise<WorkbookImage | null>>();
+  const sheetImages: SheetImage[] = [];
   for (const { row, col, srcs } of cells) {
     const images: WorkbookImage[] = [];
     for (const src of srcs) {
@@ -157,8 +169,12 @@ async function embedCellImages(
       const image = await loaded.get(src);
       if (image) images.push(image);
     }
-    if (images.length > 0) placeImagesInCell(ws, row, col, images);
+    if (images.length > 0) sheetImages.push(...placeImagesInCell(ws, row, col, images));
   }
+  // exceljsは同じ画像が続くと「画像IDと同じ番号のリンク」を使い回す。同じ画像を離れた位置で使うと
+  // 番号がずれて別の画像を指し、枠の比率に引き伸ばされるため、ID順に追加して番号を一致させる
+  sheetImages.sort((a, b) => a.id - b.id);
+  for (const { id, range } of sheetImages) ws.addImage(id, range);
 }
 
 /**
