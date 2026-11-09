@@ -1,13 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import ExcelJS from 'exceljs';
+import { deleteRows, insertRows, readXlsx, toWriteSheet, writeXlsx } from 'hucre';
+import type { Cell, CellStyle, FontStyle, MergeRange, Sheet, SheetImage, Workbook } from 'hucre';
 import sharp from 'sharp';
 import { GeneratorError } from '../utils/errors';
-import {
-  expandLoopChains,
-  extractRowLoop,
-  renderCell,
-} from '../template/templateEngine';
+import { expandLoopChains, extractRowLoop, renderCell } from '../template/templateEngine';
 import { isLocalImagePath, resolveImagePath } from '../utils/imageUtils';
 import {
   columnWidthPx,
@@ -19,19 +16,16 @@ import {
 } from './excelImageLayout';
 import type { ImageSize } from './excelImageLayout';
 import type { TextSegment } from '../template/templateEngine';
-import type { NodeSymbol, ProcedureDocument, TemplateContext } from '../parser/types';
+import type { ProcedureDocument, TemplateContext } from '../parser/types';
 
 /** 未指定時に使用するデフォルトExcelテンプレートのパス */
 const DEFAULT_EXCEL_TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'default.xlsx');
 
-/** 1pxあたりのEMU（Excelの図形の位置の単位） */
-const EMU_PER_PX = 9525;
-
 /** コードブロックの部分に使う等幅フォント */
 const CODE_FONT_NAME = 'Consolas';
 
-/** コードブロックの部分の文字色（ARGB） */
-const CODE_FONT_COLOR = 'FFC7254E';
+/** コードブロックの部分の文字色（RGB） */
+const CODE_FONT_COLOR = 'C7254E';
 
 /** 表の部分に使うフォント。半角と全角が1:2になり、表の列が揃う */
 const TABLE_FONT_NAME = 'ＭＳ ゴシック';
@@ -39,73 +33,43 @@ const TABLE_FONT_NAME = 'ＭＳ ゴシック';
 /** 表の部分のフォントの文字セット（日本語） */
 const TABLE_FONT_CHARSET = 128;
 
-/** リンクの部分の文字色（ARGB）。Excelのハイパーリンクの既定色に合わせる */
-const LINK_FONT_COLOR = 'FF0563C1';
+/** リンクの部分の文字色（RGB）。Excelのハイパーリンクの既定色に合わせる */
+const LINK_FONT_COLOR = '0563C1';
 
-/** シートの既定の `x14ac:dyDescent`（pt）。exceljsが各行に書く値に合わせる */
-const ROW_DY_DESCENT = 0.25;
-
-/**
- * ブックの画面設定。シートの画面設定と合わせて書かないと、Windowsの表示スケールが150%のExcelで
- * 全ての行が2/3の高さで表示され、画像がセルからはみ出す。大きさの単位はExcelの1/20pt
- */
-const WORKBOOK_VIEW: ExcelJS.WorkbookView = {
-  x: 0,
-  y: 0,
-  width: 28800,
-  height: 12300,
-  firstSheet: 0,
-  activeTab: 0,
-  visibility: 'visible',
-};
-
-/** ワークブックに追加済みの画像 */
-interface WorkbookImage extends ImageSize {
-  id: number;
-}
-
-/** シートに貼り付ける画像 */
-interface SheetImage {
-  /** ワークブックに追加済みの画像のID */
-  id: number;
-  /** 貼り付ける範囲 */
-  range: ExcelJS.ImagePosition & { editAs: string };
+/** 読み込んだ画像 */
+interface LoadedImage extends ImageSize {
+  data: Uint8Array;
+  type: SheetImage['type'];
 }
 
 /** 画像を含むセル */
 interface CellImages {
-  /** 行番号（1始まり） */
+  /** 行番号（0始まり） */
   row: number;
-  /** 列番号（1始まり） */
+  /** 列番号（0始まり） */
   col: number;
   /** セルに貼り付ける画像の `src`（出現順） */
   srcs: string[];
 }
 
 /**
- * ローカルの画像ファイルを読み込んでワークブックに追加する
+ * ローカルの画像ファイルを読み込む
  *
- * PNG・JPEG・GIFはそのまま、それ以外（WebPなど）はPNGに変換して追加する。
+ * PNG・JPEG・GIFはそのまま、それ以外（WebPなど）はPNGに変換する。
  *
- * @returns 追加した画像。ローカルの画像でない、または読み込めない場合は `null`
+ * @returns 読み込んだ画像。ローカルの画像でない、または読み込めない場合は `null`
  */
-async function addWorkbookImage(
-  workbook: ExcelJS.Workbook,
-  src: string,
-  basePath: string,
-): Promise<WorkbookImage | null> {
+async function loadImage(src: string, basePath: string): Promise<LoadedImage | null> {
   if (!isLocalImagePath(src)) return null;
   try {
     const input = await fs.promises.readFile(resolveImagePath(src, basePath));
     const { format, width, height, pageHeight } = await sharp(input).metadata();
     const passThrough = format === 'png' || format === 'jpeg' || format === 'gif';
-    const id = workbook.addImage(
-      passThrough
-        ? { base64: input.toString('base64'), extension: format }
-        : { base64: (await sharp(input).png().toBuffer()).toString('base64'), extension: 'png' },
-    );
     // アニメーション画像は1コマ目の高さを使う
-    return { id, width, height: pageHeight ?? height };
+    const size = { width, height: pageHeight ?? height };
+    return passThrough
+      ? { data: input, type: format, ...size }
+      : { data: await sharp(input).png().toBuffer(), type: 'png', ...size };
   } catch {
     console.warn(`[Tejun.ts] 画像ファイルを読み込めませんでした: ${src}`);
     return null;
@@ -113,39 +77,81 @@ async function addWorkbookImage(
 }
 
 /**
- * セルの左上からpx単位でずらした位置を、画像の位置として指定する値を作る
+ * セルの位置を `cells` のキーにする
  *
- * @param row 行番号（1始まり）
- * @param col 列番号（1始まり）
- * @param x セルの左端からの距離（px）
- * @param y セルの上端からの距離（px）
+ * @param row 行番号（0始まり）
+ * @param col 列番号（0始まり）
  */
-function cellAnchor(row: number, col: number, x: number, y: number): ExcelJS.Anchor {
-  // exceljsは `nativeCol` などがあればそちらを使う（`col` / `row` の小数ではpx単位のずらし量を指定できない）
-  const anchor: ExcelJS.IAnchor = {
-    col: col - 1,
-    row: row - 1,
-    nativeCol: col - 1,
-    nativeColOff: x * EMU_PER_PX,
-    nativeRow: row - 1,
-    nativeRowOff: y * EMU_PER_PX,
-  };
-  // 型定義は `Anchor` クラスを要求するが、実行時は位置だけを渡せばよい（クラスはexportされていない）
-  return anchor as ExcelJS.Anchor;
+function cellKey(row: number, col: number): string {
+  return `${row},${col}`;
+}
+
+/**
+ * セルの値をテキストとして取り出す。リッチテキストは書式を無視して断片を連結した値になる。
+ *
+ * @returns テキストでない値（数値・日付など）や数式の場合は `undefined`
+ */
+function cellText(sheet: Sheet, row: number, col: number): string | undefined {
+  if (sheet.cells?.get(cellKey(row, col))?.formula !== undefined) return undefined;
+  const value = sheet.rows[row]?.[col];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * セルの値を書き換える。書式は保ち、元のリッチテキストは取り除く。
+ *
+ * @param value 文字列、またはリッチテキストの断片
+ */
+function setCellValue(
+  sheet: Sheet,
+  row: number,
+  col: number,
+  value: string | NonNullable<Cell['richText']>,
+): void {
+  const text = typeof value === 'string' ? value : value.map((run) => run.text).join('');
+  const cell = sheet.cells?.get(cellKey(row, col));
+  sheet.cells ??= new Map();
+  sheet.cells.set(cellKey(row, col), {
+    ...cell,
+    value: text,
+    type: typeof value === 'string' ? 'string' : 'richText',
+    richText: typeof value === 'string' ? undefined : value,
+  });
+  sheet.rows[row][col] = text;
+}
+
+/**
+ * 行の高さ（pt）を返す。未設定なら `undefined`
+ *
+ * @param row 行番号（0始まり）
+ */
+function rowHeight(sheet: Sheet, row: number): number | undefined {
+  return sheet.rowDefs?.get(row)?.height;
+}
+
+/**
+ * 行の高さ（pt）を設定する
+ *
+ * @param row 行番号（0始まり）
+ */
+function setRowHeight(sheet: Sheet, row: number, height: number): void {
+  sheet.rowDefs ??= new Map();
+  sheet.rowDefs.set(row, { ...sheet.rowDefs.get(row), height });
 }
 
 /**
  * セルが占める各列の幅（文字数、左から順）を返す。結合セルは結合範囲の全ての列を返す。
  *
- * @param row 行番号（1始まり）
- * @param col 列番号（1始まり）。結合セルの場合は左端の列
+ * @param row 行番号（0始まり）
+ * @param col 列番号（0始まり）。結合セルの場合は左端の列
  */
-function cellColumnWidths(ws: ExcelJS.Worksheet, row: number, col: number): number[] {
-  const wsRow = ws.getRow(row);
-  const master = wsRow.getCell(col);
-  const widths = [ws.getColumn(col).width ?? DEFAULT_COLUMN_WIDTH];
-  for (let c = col + 1; wsRow.getCell(c).master === master; c++) {
-    widths.push(ws.getColumn(c).width ?? DEFAULT_COLUMN_WIDTH);
+function cellColumnWidths(sheet: Sheet, row: number, col: number): number[] {
+  const merge = sheet.merges?.find(
+    (range: MergeRange) => range.startCol === col && range.startRow <= row && row <= range.endRow,
+  );
+  const widths: number[] = [];
+  for (let c = col; c <= (merge?.endCol ?? col); c++) {
+    widths.push(sheet.columns?.[c]?.width ?? DEFAULT_COLUMN_WIDTH);
   }
   return widths;
 }
@@ -156,40 +162,38 @@ function cellColumnWidths(ws: ExcelJS.Worksheet, row: number, col: number): numb
  * @returns シートに貼り付ける画像（セルに並べる順）
  */
 function placeImagesInCell(
-  ws: ExcelJS.Worksheet,
+  sheet: Sheet,
   row: number,
   col: number,
-  images: WorkbookImage[],
+  images: LoadedImage[],
 ): SheetImage[] {
-  const wsRow = ws.getRow(row);
-  const cell = wsRow.getCell(col);
-  const columnWidths = cellColumnWidths(ws, row, col);
+  const style = sheet.cells?.get(cellKey(row, col))?.style;
+  const columnWidths = cellColumnWidths(sheet, row, col);
   const widthsPx = columnWidths.map((width) => columnWidthPx(width));
   const textHeight = estimateTextHeightPx(
-    cellText(cell.value) ?? '',
+    cellText(sheet, row, col) ?? '',
     columnWidths.reduce((sum, width) => sum + width, 0),
-    cell.font?.size,
-    cell.alignment?.wrapText,
+    style?.font?.size,
+    style?.alignment?.wrapText,
   );
   const layout = layoutImages(
     images,
     widthsPx.reduce((sum, width) => sum + width, 0),
     textHeight,
   );
-  wsRow.height = Math.max(wsRow.height ?? 0, layout.rowHeightPt);
+  setRowHeight(sheet, row, Math.max(rowHeight(sheet, row) ?? 0, layout.rowHeightPt));
 
   return layout.images.map((placed, i) => {
     // Excelは列の幅を超えるずらし量を列の幅で打ち切るため、結合セルでは位置が含まれる列を指定する
     const { index, offset } = locateInColumns(widthsPx, placed.x);
     return {
-      id: images[i].id,
+      data: images[i].data,
+      type: images[i].type,
       // 右下の位置ではなく大きさで指定する。右下の位置で指定すると、Excelで行がファイルの高さより
       // 低く表示されたときに、画像がセルの下端で打ち切られて潰れるため
-      range: {
-        tl: cellAnchor(row, col + index, offset, placed.y),
-        ext: { width: placed.width, height: placed.height },
-        editAs: 'oneCell',
-      },
+      anchor: { from: { row, col: col + index, colOff: offset, rowOff: placed.y } },
+      width: placed.width,
+      height: placed.height,
     };
   });
 }
@@ -197,40 +201,19 @@ function placeImagesInCell(
 /**
  * 各セルに、そのセルの変数に含まれていた画像を貼り付ける。同じ画像は一度だけ読み込む。
  */
-async function embedCellImages(
-  workbook: ExcelJS.Workbook,
-  ws: ExcelJS.Worksheet,
-  cells: CellImages[],
-  basePath: string,
-): Promise<void> {
-  const loaded = new Map<string, Promise<WorkbookImage | null>>();
+async function embedCellImages(sheet: Sheet, cells: CellImages[], basePath: string): Promise<void> {
+  const loaded = new Map<string, Promise<LoadedImage | null>>();
   const sheetImages: SheetImage[] = [];
   for (const { row, col, srcs } of cells) {
-    const images: WorkbookImage[] = [];
+    const images: LoadedImage[] = [];
     for (const src of srcs) {
-      if (!loaded.has(src)) loaded.set(src, addWorkbookImage(workbook, src, basePath));
+      if (!loaded.has(src)) loaded.set(src, loadImage(src, basePath));
       const image = await loaded.get(src);
       if (image) images.push(image);
     }
-    if (images.length > 0) sheetImages.push(...placeImagesInCell(ws, row, col, images));
+    if (images.length > 0) sheetImages.push(...placeImagesInCell(sheet, row, col, images));
   }
-  // exceljsは同じ画像が続くと「画像IDと同じ番号のリンク」を使い回す。同じ画像を離れた位置で使うと
-  // 番号がずれて別の画像を指し、枠の比率に引き伸ばされるため、ID順に追加して番号を一致させる
-  sheetImages.sort((a, b) => a.id - b.id);
-  for (const { id, range } of sheetImages) ws.addImage(id, range);
-}
-
-/**
- * セルの値をテキストとして取り出す。リッチテキストは書式を無視して断片を連結する。
- *
- * @returns テキストでない値（数値・日付・数式など）の場合は `undefined`
- */
-function cellText(value: ExcelJS.CellValue): string | undefined {
-  if (typeof value === 'string') return value;
-  if (value !== null && typeof value === 'object' && 'richText' in value) {
-    return value.richText.map((part) => part.text).join('');
-  }
-  return undefined;
+  sheet.images = [...(sheet.images ?? []), ...sheetImages];
 }
 
 /**
@@ -239,16 +222,13 @@ function cellText(value: ExcelJS.CellValue): string | undefined {
  * @param font テンプレートのセルのフォント。コードブロックの部分はこれのフォント名と色を、
  *   表の部分はフォント名を、リンクの部分は色と下線を変える
  */
-function segmentFont(
-  segment: TextSegment,
-  font: Partial<ExcelJS.Font> | undefined,
-): Partial<ExcelJS.Font> | undefined {
-  if (segment.code) return { ...font, name: CODE_FONT_NAME, color: { argb: CODE_FONT_COLOR } };
+function segmentFont(segment: TextSegment, font: FontStyle | undefined): FontStyle | undefined {
+  if (segment.code) return { ...font, name: CODE_FONT_NAME, color: { rgb: CODE_FONT_COLOR } };
   if (segment.table) {
     // テーマのフォントの指定（scheme）が残っているとフォント名より優先され、列が揃わなくなる
     return { ...font, name: TABLE_FONT_NAME, charset: TABLE_FONT_CHARSET, scheme: undefined };
   }
-  if (segment.link) return { ...font, color: { argb: LINK_FONT_COLOR }, underline: true };
+  if (segment.link) return { ...font, color: { rgb: LINK_FONT_COLOR }, underline: true };
   return font;
 }
 
@@ -261,34 +241,20 @@ function segmentFont(
 function toCellValue(
   text: string,
   segments: TextSegment[],
-  font: Partial<ExcelJS.Font> | undefined,
-): ExcelJS.CellValue {
+  font: FontStyle | undefined,
+): string | NonNullable<Cell['richText']> {
   if (!segments.some((segment) => segment.code || segment.link || segment.table)) return text;
-  return {
-    richText: segments.map((segment) => ({
-      text: segment.text,
-      font: segmentFont(segment, font),
-    })),
-  };
+  return segments.map((segment) => ({ text: segment.text, font: segmentFont(segment, font) }));
 }
 
 /**
- * カスタムExcelテンプレートを使用してワークシートを構築する
+ * テンプレートのシートを手順書の内容で埋める（シートを直接書き換える）
  */
-async function buildFromTemplate(
-  workbook: ExcelJS.Workbook,
+async function fillTemplateSheet(
+  sheet: Sheet,
   doc: ProcedureDocument,
   basePath: string,
-  templatePath: string,
 ): Promise<void> {
-  const templateWorkbook = new ExcelJS.Workbook();
-  await templateWorkbook.xlsx.readFile(templatePath);
-
-  const templateWs = templateWorkbook.worksheets[0];
-  if (!templateWs) {
-    throw new GeneratorError('テンプレートExcelにワークシートが見つかりません。');
-  }
-
   const ctx: TemplateContext = {
     title: doc.title,
     date: doc.date,
@@ -299,140 +265,106 @@ async function buildFromTemplate(
 
   // セルをまたぐ {{#each 記号 steps}} ... {{/each}} がある最初の行を、行ループの行として検出
   let templateRowNumber = -1;
-  let rowLoop: { symbols: NodeSymbol[]; cells: string[] } | undefined;
-  templateWs.eachRow((row, rowNum) => {
-    if (rowLoop) return;
-    const texts = [''];
-    for (let col = 1; col <= row.cellCount; col++) {
-      texts.push(cellText(row.getCell(col).value) ?? '');
-    }
-    rowLoop = extractRowLoop(texts);
-    if (rowLoop) templateRowNumber = rowNum;
-  });
+  let rowLoop: ReturnType<typeof extractRowLoop>;
+  for (let row = 0; row < sheet.rows.length && !rowLoop; row++) {
+    rowLoop = extractRowLoop(sheet.rows[row].map((_, col) => cellText(sheet, row, col) ?? ''));
+    if (rowLoop) templateRowNumber = row;
+  }
 
   // ヘッダー変数置換（行ループの行は行ごとの値で別途置換するため対象外）
   const headerImages: CellImages[] = [];
-  templateWs.eachRow((row, rowNum) => {
-    if (rowNum === templateRowNumber) return;
-    row.eachCell((cell, colNum) => {
-      const text = cellText(cell.value);
+  sheet.rows.forEach((values, row) => {
+    if (row === templateRowNumber) return;
+    values.forEach((_, col) => {
+      const text = cellText(sheet, row, col);
       if (text === undefined) return;
       const { text: replaced, images } = renderCell(text, ctx, [ctx.root]);
       // 変数を含まないリッチテキストはセル内の書式を保つため書き換えない
       if (replaced === text) return;
-      cell.value = replaced;
-      if (images.length > 0) headerImages.push({ row: rowNum, col: colNum, srcs: images });
+      setCellValue(sheet, row, col, replaced);
+      if (images.length > 0) headerImages.push({ row, col, srcs: images });
       // 文章が収まるよう行を広げる（テンプレート行の高さより低くはしない）
+      const style = sheet.cells?.get(cellKey(row, col))?.style;
       const textHeightPx = estimateTextHeightPx(
         replaced,
-        cellColumnWidths(templateWs, rowNum, colNum).reduce((sum, width) => sum + width, 0),
-        cell.font?.size,
-        cell.alignment?.wrapText,
+        cellColumnWidths(sheet, row, col).reduce((sum, width) => sum + width, 0),
+        style?.font?.size,
+        style?.alignment?.wrapText,
       );
-      row.height = Math.max(row.height ?? 0, textRowHeightPt(textHeightPx));
+      setRowHeight(sheet, row, Math.max(rowHeight(sheet, row) ?? 0, textRowHeightPt(textHeightPx)));
     });
   });
 
   if (!rowLoop) {
-    const newWs = workbook.addWorksheet(templateWs.name);
-    copyWorksheet(templateWs, newWs);
-    await embedCellImages(workbook, newWs, headerImages, basePath);
+    await embedCellImages(sheet, headerImages, basePath);
     return;
   }
 
-  // テンプレート行のスタイルを保存
-  const templateRow = templateWs.getRow(templateRowNumber);
-  const templateCells: Array<{ value: string; style: Partial<ExcelJS.Style> }> = [];
+  // テンプレート行の高さとスタイルを保存
+  const templateHeight = rowHeight(sheet, templateRowNumber);
   const loopCells = rowLoop.cells;
-  templateRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
-    templateCells[colNum] = {
-      value: loopCells[colNum] ?? '',
-      style: {
-        font: cell.font,
-        fill: cell.fill,
-        alignment: cell.alignment,
-        border: cell.border,
-      },
-    };
-  });
+  const templateStyles: Array<CellStyle | undefined> = loopCells.map(
+    (_, col) => sheet.cells?.get(cellKey(templateRowNumber, col))?.style,
+  );
 
   // テンプレート行を削除して行ループの要素分の行を挿入
-  templateWs.spliceRows(templateRowNumber, 1);
-
   const chains = expandLoopChains([ctx.root], rowLoop.symbols);
+  deleteRows(sheet, templateRowNumber, 1);
+  insertRows(sheet, templateRowNumber, chains.length);
+
   // 行ループより下の行は、展開した行の分だけ下にずれる
   const cellImages: CellImages[] = headerImages.map((cell) =>
     cell.row > templateRowNumber ? { ...cell, row: cell.row + chains.length - 1 } : cell,
   );
-  let insertAt = templateRowNumber;
   chains.forEach((chain, i) => {
-    templateWs.spliceRows(insertAt, 0, []);
-    const newRow = templateWs.getRow(insertAt);
-    if (templateRow.height !== undefined) newRow.height = templateRow.height;
+    const row = templateRowNumber + i;
+    if (templateHeight !== undefined) setRowHeight(sheet, row, templateHeight);
 
     let textHeightPx = 0;
-    templateCells.forEach((cellDef, colNum) => {
-      if (colNum === 0) return;
-      const cell = newRow.getCell(colNum);
-      const { text, segments, images } = renderCell(cellDef.value, ctx, chain, chains[i - 1]);
-      cell.value = toCellValue(text, segments, cellDef.style.font);
+    loopCells.forEach((template, col) => {
+      const style = templateStyles[col];
+      const { text, segments, images } = renderCell(template, ctx, chain, chains[i - 1]);
+      sheet.cells ??= new Map();
+      sheet.cells.set(cellKey(row, col), { value: null, type: 'empty', style });
+      setCellValue(sheet, row, col, toCellValue(text, segments, style?.font));
       textHeightPx = Math.max(
         textHeightPx,
         estimateTextHeightPx(
           text,
-          templateWs.getColumn(colNum).width,
-          cellDef.style.font?.size,
-          cellDef.style.alignment?.wrapText,
+          sheet.columns?.[col]?.width,
+          style?.font?.size,
+          style?.alignment?.wrapText,
         ),
       );
-      if (images.length > 0) cellImages.push({ row: insertAt, col: colNum, srcs: images });
-      if (cellDef.style.font) cell.font = cellDef.style.font;
-      if (cellDef.style.fill) cell.fill = cellDef.style.fill;
-      if (cellDef.style.alignment) cell.alignment = cellDef.style.alignment;
-      if (cellDef.style.border) cell.border = cellDef.style.border;
+      if (images.length > 0) cellImages.push({ row, col, srcs: images });
     });
     // 文章が収まるよう行を広げる（テンプレート行の高さより低くはしない。画像を貼り付ける行は後でさらに広げる）
     if (textHeightPx > 0) {
-      newRow.height = Math.max(newRow.height ?? 0, textRowHeightPt(textHeightPx));
+      setRowHeight(sheet, row, Math.max(rowHeight(sheet, row) ?? 0, textRowHeightPt(textHeightPx)));
     }
-
-    newRow.commit();
-    insertAt++;
   });
 
-  const newWs = workbook.addWorksheet(templateWs.name);
-  copyWorksheet(templateWs, newWs);
-  await embedCellImages(workbook, newWs, cellImages, basePath);
+  await embedCellImages(sheet, cellImages, basePath);
 }
 
 /**
- * ワークシートの内容を別のワークシートにコピーする
+ * Excelテンプレートを読み込む
+ *
+ * @throws GeneratorError テンプレートにワークシートが無い場合
  */
-function copyWorksheet(src: ExcelJS.Worksheet, dest: ExcelJS.Worksheet): void {
-  dest.properties.dyDescent = ROW_DY_DESCENT;
-  dest.views = [{ state: 'normal' }];
-  dest.pageSetup = { ...src.pageSetup };
-  src.columns.forEach((col, i) => {
-    if (col.width) dest.getColumn(i + 1).width = col.width;
-  });
-  src.eachRow({ includeEmpty: true }, (row, rowNum) => {
-    const destRow = dest.getRow(rowNum);
-    if (row.height) destRow.height = row.height;
-    row.eachCell({ includeEmpty: true }, (cell, colNum) => {
-      const destCell = destRow.getCell(colNum);
-      destCell.value = cell.value;
-      if (cell.font) destCell.font = cell.font;
-      if (cell.fill) destCell.fill = cell.fill;
-      if (cell.alignment) destCell.alignment = cell.alignment;
-      if (cell.border) destCell.border = cell.border;
-    });
-    destRow.commit();
-  });
-  src.model.merges.forEach((range) => dest.mergeCells(range));
+async function readTemplate(templatePath: string): Promise<{ workbook: Workbook; sheet: Sheet }> {
+  const workbook = await readXlsx(await fs.promises.readFile(templatePath), { readStyles: true });
+  const sheet = workbook.sheets[0];
+  if (!sheet) {
+    throw new GeneratorError('テンプレートExcelにワークシートが見つかりません。');
+  }
+  return { workbook, sheet };
 }
 
 /**
  * Excelファイル（.xlsx）を生成してファイルに書き込む
+ *
+ * テンプレートの最初のシートだけを出力する。
  *
  * @param doc 解析済み手順書ドキュメント
  * @param inputFilePath 入力Markdownファイルのパス
@@ -449,13 +381,18 @@ export async function generateExcel(
   outputBaseName?: string,
 ): Promise<string> {
   const basePath = path.dirname(path.resolve(inputFilePath));
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Tejun.ts';
-  workbook.created = new Date();
-  workbook.views = [WORKBOOK_VIEW];
 
+  let output: Uint8Array;
   try {
-    await buildFromTemplate(workbook, doc, basePath, templatePath ?? DEFAULT_EXCEL_TEMPLATE_PATH);
+    const { workbook, sheet } = await readTemplate(templatePath ?? DEFAULT_EXCEL_TEMPLATE_PATH);
+    await fillTemplateSheet(sheet, doc, basePath);
+    // hucreはブックとシートの画面設定（bookViews、sheetViews）を必ず書き出す。
+    // 無いと、Windowsの表示スケールが150%のExcelで全ての行が2/3の高さで表示され、画像がセルからはみ出す
+    output = await writeXlsx({
+      sheets: [toWriteSheet(sheet)],
+      defaultFont: workbook.defaultFont,
+      properties: { creator: 'Tejun.ts', created: new Date() },
+    });
   } catch (err) {
     if (err instanceof GeneratorError) throw err;
     throw new GeneratorError(`Excelの生成に失敗しました: ${String(err)}`);
@@ -465,7 +402,7 @@ export async function generateExcel(
   const outPath = path.join(outputDir, `${baseName}.xlsx`);
 
   await fs.promises.mkdir(outputDir, { recursive: true });
-  await workbook.xlsx.writeFile(outPath);
+  await fs.promises.writeFile(outPath, output);
 
   return outPath;
 }

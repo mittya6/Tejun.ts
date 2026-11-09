@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import ExcelJS from 'exceljs';
+import zlib from 'zlib';
+import { parseCellRef, readXlsx, writeXlsx } from 'hucre';
+import type { CellValue, RichTextRun, Sheet, SheetImage, WriteSheet } from 'hucre';
 import sharp from 'sharp';
 import { generateExcel } from './excelGenerator';
 import { GeneratorError } from '../utils/errors';
@@ -38,17 +40,68 @@ date: "2026/06/24"
 
 const SAMPLE_DOC: ProcedureDocument = parseMarkdown(SAMPLE_MD);
 
+/** テンプレートのシートを .xlsx に書き出す */
+async function writeTemplate(filePath: string, sheet: Omit<WriteSheet, 'name'>): Promise<void> {
+  const output = await writeXlsx({ sheets: [{ name: 'テンプレート', ...sheet }] });
+  await fs.promises.writeFile(filePath, output);
+}
+
+/** 出力したExcelの最初のシートを読み直す */
+async function readSheet(filePath: string): Promise<Sheet> {
+  const workbook = await readXlsx(await fs.promises.readFile(filePath), { readStyles: true });
+  return workbook.sheets[0];
+}
+
+/** A1形式で指定したセルの値を返す */
+function valueAt(sheet: Sheet, ref: string): CellValue {
+  const { row, col } = parseCellRef(ref);
+  return sheet.rows[row]?.[col] ?? null;
+}
+
+/** A1形式で指定したセルのリッチテキストを返す */
+function richTextAt(sheet: Sheet, ref: string): RichTextRun[] | undefined {
+  const { row, col } = parseCellRef(ref);
+  return sheet.cells?.get(`${row},${col}`)?.richText;
+}
+
+/** 行（1始まり）の高さ（pt）を返す */
+function heightOf(sheet: Sheet, row: number): number | undefined {
+  return sheet.rowDefs?.get(row - 1)?.height;
+}
+
+/** 貼り付けられた画像を返す */
+function imagesOf(sheet: Sheet): SheetImage[] {
+  return sheet.images ?? [];
+}
+
+/** xlsx（zip）から指定したパートの内容を取り出す（セントラルディレクトリから位置を求める） */
+function readZipEntry(zip: Buffer, name: string): string {
+  const endOfCentralDir = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  let offset = zip.readUInt32LE(endOfCentralDir + 16);
+  for (let i = 0; i < zip.readUInt16LE(endOfCentralDir + 10); i++) {
+    const method = zip.readUInt16LE(offset + 10);
+    const size = zip.readUInt32LE(offset + 20);
+    const nameLength = zip.readUInt16LE(offset + 28);
+    const entryName = zip.toString('utf-8', offset + 46, offset + 46 + nameLength);
+    if (entryName === name) {
+      const local = zip.readUInt32LE(offset + 42);
+      const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+      const data = zip.subarray(start, start + size);
+      return (method === 0 ? data : zlib.inflateRawSync(data)).toString('utf-8');
+    }
+    offset += 46 + nameLength + zip.readUInt16LE(offset + 30) + zip.readUInt16LE(offset + 32);
+  }
+  throw new Error(`zipに ${name} がありません`);
+}
+
 /** 行ループの行を1行持つ最小限のカスタムテンプレートを作成する */
 async function writeCustomTemplate(filePath: string): Promise<void> {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('テンプレート');
-  ws.getRow(1).getCell(1).value = '{{meta.title}}';
-  ws.getRow(2).getCell(1).value = '{{#each ### steps}}';
-  ws.getRow(2).getCell(2).value = '{{##}}';
-  ws.getRow(2).getCell(3).value = '{{###}}';
-  ws.getRow(2).getCell(4).value = '{{###.body}}';
-  ws.getRow(2).getCell(5).value = '{{/each}}';
-  await wb.xlsx.writeFile(filePath);
+  await writeTemplate(filePath, {
+    rows: [
+      ['{{meta.title}}'],
+      ['{{#each ### steps}}', '{{##}}', '{{###}}', '{{###.body}}', '{{/each}}'],
+    ],
+  });
 }
 
 describe('generateExcel', () => {
@@ -72,34 +125,27 @@ describe('generateExcel', () => {
     expect(fs.existsSync(outPath)).toBe(true);
     expect(path.basename(outPath)).toBe('input.xlsx');
 
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
-    expect(ws.getRow(1).getCell(2).value).toBe('ログイン手順');
+    const ws = await readSheet(outPath);
+    expect(valueAt(ws, 'B1')).toBe('ログイン手順');
     // 既定テンプレートの列見出し（B列から 項番|大項目|操作手順|期待される結果|チェック|実施日|実行者）
-    const headerRow = ws.getRow(3);
-    expect(headerRow.getCell(6).value).toBe('チェック');
-    expect(headerRow.getCell(7).value).toBe('実施日');
-    expect(headerRow.getCell(8).value).toBe('実行者');
+    expect(valueAt(ws, 'F3')).toBe('チェック');
+    expect(valueAt(ws, 'G3')).toBe('実施日');
+    expect(valueAt(ws, 'H3')).toBe('実行者');
   });
 
   it('ステップ数分の行が展開される', async () => {
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
     // 行4・行5に手順1・手順2が展開されているはず
-    expect(ws.getRow(4).getCell(4).value).toContain('手順1');
-    expect(ws.getRow(5).getCell(4).value).toContain('手順2');
+    expect(valueAt(ws, 'D4')).toContain('手順1');
+    expect(valueAt(ws, 'D5')).toContain('手順2');
   });
 
   it('デフォルトテンプレートの {{##.index}} は大項目ごとの連番に置換される', async () => {
     const doc = parseMarkdown(`${SAMPLE_MD}\n## カテゴリB\n\n### 手順3\n`);
     const outPath = await generateExcel(doc, inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
-    expect([4, 5, 6].map((r) => ws.getRow(r).getCell(2).value)).toEqual(['1-1', '1-2', '2-1']);
+    const ws = await readSheet(outPath);
+    expect(['B4', 'B5', 'B6'].map((ref) => valueAt(ws, ref))).toEqual(['1-1', '1-2', '2-1']);
   });
 
   it('カスタムテンプレートの行ループの行を展開する', async () => {
@@ -107,60 +153,50 @@ describe('generateExcel', () => {
     await writeCustomTemplate(templatePath);
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toBe('ログイン手順');
-    expect(ws.getRow(2).getCell(2).value).toBe('カテゴリA');
-    expect(ws.getRow(2).getCell(3).value).toBe('手順1');
-    expect(ws.getRow(3).getCell(3).value).toBe('手順2');
+    expect(valueAt(ws, 'A1')).toBe('ログイン手順');
+    expect(valueAt(ws, 'B2')).toBe('カテゴリA');
+    expect(valueAt(ws, 'C2')).toBe('手順1');
+    expect(valueAt(ws, 'C3')).toBe('手順2');
   });
 
   it('{{#if ##.first}} は同じ大項目の2行目以降を空にする', async () => {
     const templatePath = path.join(tmpDir, 'custom-first.xlsx');
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('テンプレート');
-    ws.getRow(1).getCell(1).value = '{{#each ## steps}}';
-    ws.getRow(1).getCell(2).value = '{{#each ### steps}}{{#if ##.first}}{{##}}{{/if}}';
-    ws.getRow(1).getCell(3).value = '{{###}}{{/each}}{{/each}}';
-    await wb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [
+        [
+          '{{#each ## steps}}',
+          '{{#each ### steps}}{{#if ##.first}}{{##}}{{/if}}',
+          '{{###}}{{/each}}{{/each}}',
+        ],
+      ],
+    });
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const out = new ExcelJS.Workbook();
-    await out.xlsx.readFile(outPath);
-    const outWs = out.worksheets[0];
-    expect([1, 2].map((r) => outWs.getRow(r).getCell(2).value)).toEqual(['カテゴリA', '']);
-    expect([1, 2].map((r) => outWs.getRow(r).getCell(3).value)).toEqual(['手順1', '手順2']);
+    const ws = await readSheet(outPath);
+    expect(['B1', 'B2'].map((ref) => valueAt(ws, ref))).toEqual(['カテゴリA', '']);
+    expect(['C1', 'C2'].map((ref) => valueAt(ws, ref))).toEqual(['手順1', '手順2']);
   });
 
   it('セル内で閉じた {{#each - steps}} はセル内で箇条書きの項目を繰り返す', async () => {
     const templatePath = path.join(tmpDir, 'custom-list.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}{{###}}';
-    tplWs.getRow(1).getCell(2).value = '{{#each - steps}}・{{-}}\n{{/each}}';
-    tplWs.getRow(1).getCell(3).value = '{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [['{{#each ### steps}}{{###}}', '{{#each - steps}}・{{-}}\n{{/each}}', '{{/each}}']],
+    });
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toBe('手順1');
-    expect(ws.getRow(1).getCell(2).value).toBe('・ぶどう\n・リンゴ\n');
-    expect(ws.getRow(2).getCell(1).value).toBe('手順2');
-    expect(ws.getRow(2).getCell(2).value).toBe('');
+    expect(valueAt(ws, 'A1')).toBe('手順1');
+    expect(valueAt(ws, 'B1')).toBe('・ぶどう\n・リンゴ\n');
+    expect(valueAt(ws, 'A2')).toBe('手順2');
+    expect(valueAt(ws, 'B2')).toBe('');
   });
 
   it('行ループの記号が解釈できない（旧記法の {{#each steps}} など）場合は GeneratorError をスローする', async () => {
     const templatePath = path.join(tmpDir, 'custom-old.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each steps}}';
-    tplWs.getRow(1).getCell(2).value = '{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, { rows: [['{{#each steps}}', '{{/each}}']] });
 
     await expect(generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath)).rejects.toThrow(
       GeneratorError,
@@ -169,164 +205,154 @@ describe('generateExcel', () => {
 
   it('リッチテキストのセルに含まれる変数も置換される', async () => {
     const templatePath = path.join(tmpDir, 'custom-richtext.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
     // 書式の異なる断片に変数がまたがっていても置換されること
-    tplWs.getRow(1).getCell(1).value = {
-      richText: [
-        { font: { name: 'Noto Sans JP' }, text: '出力日: {{meta.' },
-        { font: { name: 'Cambria' }, text: 'date}}' },
+    const richText = (runs: RichTextRun[]) => ({
+      value: runs.map((run) => run.text).join(''),
+      type: 'richText' as const,
+      richText: runs,
+    });
+    await writeTemplate(templatePath, {
+      rows: [
+        [
+          richText([
+            { font: { name: 'Noto Sans JP' }, text: '出力日: {{meta.' },
+            { font: { name: 'Cambria' }, text: 'date}}' },
+          ]),
+        ],
+        [
+          richText([{ font: { bold: true }, text: '{{#each ### steps}}' }]),
+          richText([{ font: { bold: true }, text: '{{###}}' }]),
+        ],
       ],
-    };
-    tplWs.getRow(2).getCell(1).value = {
-      richText: [{ font: { bold: true }, text: '{{#each ### steps}}' }],
-    };
-    tplWs.getRow(2).getCell(2).value = { richText: [{ font: { bold: true }, text: '{{###}}' }] };
-    await tplWb.xlsx.writeFile(templatePath);
+    });
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toBe('出力日: 2026/06/24');
-    expect(ws.getRow(2).getCell(2).value).toBe('手順1');
-    expect(ws.getRow(3).getCell(2).value).toBe('手順2');
+    expect(valueAt(ws, 'A1')).toBe('出力日: 2026/06/24');
+    expect(richTextAt(ws, 'A1')).toBeUndefined();
+    expect(valueAt(ws, 'B2')).toBe('手順1');
+    expect(valueAt(ws, 'B3')).toBe('手順2');
   });
 
   it('コードブロックの部分だけ等幅フォント・色付きのリッチテキストにする', async () => {
     const templatePath = path.join(tmpDir, 'custom-code.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
-    tplWs.getRow(1).getCell(1).font = { size: 9 };
-    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [
+        [
+          { value: '{{#each ## steps}}{{##.body}}', style: { font: { size: 9 } } },
+          '{{##}}{{/each}}',
+        ],
+      ],
+    });
 
     const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n実行する\n\n```sh\nls -la\n```\n');
     const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toEqual({
-      richText: [
-        { text: '実行する\n\n', font: { size: 9 } },
-        {
-          text: 'ls -la',
-          font: { size: 9, name: 'Consolas', color: { argb: 'FFC7254E' } },
-        },
-      ],
-    });
+    const runs = richTextAt(ws, 'A1');
+    expect(runs?.map((run) => run.text)).toEqual(['実行する\n\n', 'ls -la']);
+    expect(runs?.[0].font).toMatchObject({ size: 9 });
+    expect(runs?.[1].font).toMatchObject({ size: 9, name: 'Consolas', color: { rgb: 'C7254E' } });
     // コードブロックを含まないセルは文字列のまま
-    expect(ws.getRow(1).getCell(2).value).toBe('手順1');
+    expect(valueAt(ws, 'B1')).toBe('手順1');
+    expect(richTextAt(ws, 'B1')).toBeUndefined();
   });
 
   it('表の部分だけMS ゴシックのリッチテキストにする', async () => {
     const templatePath = path.join(tmpDir, 'custom-table.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
-    tplWs.getRow(1).getCell(1).font = { size: 9, name: 'Calibri', scheme: 'minor', charset: 1 };
-    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [
+        [
+          {
+            value: '{{#each ## steps}}{{##.body}}',
+            style: { font: { size: 9, name: 'Calibri', scheme: 'minor', charset: 1 } },
+          },
+          '{{##}}{{/each}}',
+        ],
+      ],
+    });
 
     const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n設定する\n\n| 名前 |\n|---|\n| a |\n');
     const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toEqual({
-      richText: [
-        {
-          text: '設定する\n\n',
-          font: { size: 9, name: 'Calibri', scheme: 'minor', charset: 1 },
-        },
-        {
-          text: '┌───┐\n│ 名前 │\n├───┤\n│ a    │\n└───┘',
-          font: { size: 9, name: 'ＭＳ ゴシック', charset: 128 },
-        },
-      ],
-    });
+    const runs = richTextAt(ws, 'A1');
+    expect(runs?.map((run) => run.text)).toEqual([
+      '設定する\n\n',
+      '┌───┐\n│ 名前 │\n├───┤\n│ a    │\n└───┘',
+    ]);
+    expect(runs?.[0].font).toMatchObject({ size: 9, name: 'Calibri', scheme: 'minor', charset: 1 });
+    expect(runs?.[1].font).toMatchObject({ size: 9, name: 'ＭＳ ゴシック', charset: 128 });
+    // テーマのフォントの指定が残るとフォント名より優先されるため、取り除く
+    expect(runs?.[1].font?.scheme).toBeUndefined();
   });
 
   it('リンクの部分だけ青字・下線のリッチテキストにする', async () => {
     const templatePath = path.join(tmpDir, 'custom-link.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body}}';
-    tplWs.getRow(1).getCell(1).font = { size: 9 };
-    tplWs.getRow(1).getCell(2).value = '{{##}}{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [
+        [
+          { value: '{{#each ## steps}}{{##.body}}', style: { font: { size: 9 } } },
+          '{{##}}{{/each}}',
+        ],
+      ],
+    });
 
     const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n[手順書](https://example.com) を見る\n');
     const outPath = await generateExcel(doc, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).getCell(1).value).toEqual({
-      richText: [
-        { text: '手順書', font: { size: 9, color: { argb: 'FF0563C1' }, underline: true } },
-        { text: ' を見る', font: { size: 9 } },
-      ],
-    });
+    const runs = richTextAt(ws, 'A1');
+    expect(runs?.map((run) => run.text)).toEqual(['手順書', ' を見る']);
+    expect(runs?.[0].font).toMatchObject({ size: 9, color: { rgb: '0563C1' }, underline: true });
+    expect(runs?.[1].font).toMatchObject({ size: 9 });
+    expect(runs?.[1].font?.underline).toBeFalsy();
   });
 
   it('画像が無くても、展開した行の高さを文章の行数に合わせて広げる', async () => {
     const templatePath = path.join(tmpDir, 'custom-text-height.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}{{###}}';
-    tplWs.getRow(1).getCell(2).value = '{{#each - steps}}・{{-}}\n{{/each}}{{/each}}';
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [['{{#each ### steps}}{{###}}', '{{#each - steps}}・{{-}}\n{{/each}}{{/each}}']],
+    });
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
     // 手順1は箇条書き2項目＋末尾の改行で3行、手順2は1行
-    const [multiLine, singleLine] = [ws.getRow(1).height, ws.getRow(2).height];
+    const [multiLine, singleLine] = [heightOf(ws, 1)!, heightOf(ws, 2)!];
     expect(singleLine).toBeGreaterThan(0);
     expect(multiLine).toBeGreaterThan(singleLine * 2);
-    expect(ws.getImages()).toHaveLength(0);
+    expect(imagesOf(ws)).toHaveLength(0);
   });
 
   it('テンプレートのステップ行に高さがあれば展開した行にも同じ高さを設定する', async () => {
     const templatePath = path.join(tmpDir, 'custom-height.xlsx');
-    const tplWb = new ExcelJS.Workbook();
-    const tplWs = tplWb.addWorksheet('テンプレート');
-    tplWs.getRow(1).getCell(1).value = '{{#each ### steps}}';
-    tplWs.getRow(1).getCell(2).value = '{{###}}';
-    tplWs.getRow(1).height = 55;
-    await tplWb.xlsx.writeFile(templatePath);
+    await writeTemplate(templatePath, {
+      rows: [['{{#each ### steps}}', '{{###}}']],
+      rowDefs: new Map([[0, { height: 55 }]]),
+    });
 
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir, templatePath);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
+    const ws = await readSheet(outPath);
 
-    expect(ws.getRow(1).height).toBe(55);
-    expect(ws.getRow(2).height).toBe(55);
+    expect(heightOf(ws, 1)).toBe(55);
+    expect(heightOf(ws, 2)).toBe(55);
   });
 
-  it('シートの x14ac:dyDescent をexceljsの既定値の55にしない', async () => {
+  it('シートの x14ac:dyDescent を55にしない', async () => {
     const outPath = await generateExcel(parseMarkdown('# 見出し\n'), inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
+    const sheetXml = readZipEntry(await fs.promises.readFile(outPath), 'xl/worksheets/sheet1.xml');
 
-    expect(wb.worksheets[0].properties.dyDescent).toBe(0.25);
+    expect(sheetXml).not.toContain('dyDescent="55"');
   });
 
   it('ブックとシートの画面設定を書き出す（無いと表示スケール150%のExcelで行が2/3の高さになる）', async () => {
     const outPath = await generateExcel(parseMarkdown('# 見出し\n'), inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
+    const zip = await fs.promises.readFile(outPath);
 
-    expect(wb.views).toHaveLength(1);
-    expect(wb.worksheets[0].views).toHaveLength(1);
+    expect(readZipEntry(zip, 'xl/workbook.xml')).toMatch(/<bookViews><workbookView\b/);
+    expect(readZipEntry(zip, 'xl/worksheets/sheet1.xml')).toMatch(/<sheetViews><sheetView\b/);
   });
 
   describe('画像の貼り付け', () => {
@@ -354,63 +380,60 @@ describe('generateExcel', () => {
       );
     }
 
-    /** 貼り付けられた画像の大きさ（px）を返す。型定義の `getImages` は右下の位置で指定した場合だけを表す */
-    function imageExt(range: ExcelJS.ImageRange): ExcelJS.ImagePosition['ext'] {
-      return (range as unknown as ExcelJS.ImagePosition).ext;
-    }
-
-    /** 列（1始まり）ごとに、貼り付けられた画像を上から順に返す */
-    function imagesInColumn(ws: ExcelJS.Worksheet, col: number) {
-      return ws
-        .getImages()
-        .filter((image) => image.range.tl.nativeCol === col - 1)
-        .sort((a, b) => a.range.tl.nativeRowOff - b.range.tl.nativeRowOff);
+    /** 列（A1形式の列名）ごとに、貼り付けられた画像を上から順に返す */
+    function imagesInColumn(ws: Sheet, column: string): SheetImage[] {
+      const { col } = parseCellRef(`${column}1`);
+      return imagesOf(ws)
+        .filter((image) => image.anchor.from.col === col)
+        .sort((a, b) => (a.anchor.from.rowOff ?? 0) - (b.anchor.from.rowOff ?? 0));
     }
 
     it('画像を含む変数を書いたセルに、文章の下へ縦に並べて貼り付ける', async () => {
       await writeImages();
       const outPath = await generateExcel(parseMarkdown(IMAGE_MD), inputFile, outputDir);
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(outPath);
-      const ws = wb.worksheets[0];
+      const ws = await readSheet(outPath);
 
       // 既定テンプレート: D列 `{{##}}\n{{##.body}}`（本文・リスト）、E列 `{{##.>}}`（引用）
-      const bodyImages = imagesInColumn(ws, 4);
-      const quoteImages = imagesInColumn(ws, 5);
+      const bodyImages = imagesInColumn(ws, 'D');
+      const quoteImages = imagesInColumn(ws, 'E');
       expect(bodyImages).toHaveLength(2);
       expect(quoteImages).toHaveLength(2);
       for (const image of [...bodyImages, ...quoteImages]) {
-        expect(image.range.tl.nativeRow).toBe(3);
-        expect(image.range).toHaveProperty('editAs', 'oneCell');
+        expect(image.anchor.from.row).toBe(3);
+        // 大きさで指定する（右下の位置で指定しない）
+        expect(image.anchor.to).toBeUndefined();
       }
       // 文章の下から始まり、上の画像と重ならない
-      expect(bodyImages[0].range.tl.nativeRowOff).toBeGreaterThan(0);
+      expect(bodyImages[0].anchor.from.rowOff).toBeGreaterThan(0);
       const [first, second] = quoteImages;
-      expect(second.range.tl.nativeRowOff).toBeGreaterThan(first.range.tl.nativeRowOff);
+      expect(second.anchor.from.rowOff).toBeGreaterThan(first.anchor.from.rowOff ?? 0);
       // 画像が収まるよう行の高さが広がる
-      expect(ws.getRow(4).height).toBeGreaterThan(100 * 0.75);
+      expect(heightOf(ws, 4)).toBeGreaterThan(100 * 0.75);
     });
 
     it('WebPはPNGに変換し、同じ画像は一度だけ読み込む', async () => {
       await writeImages();
+      const readFile = vi.spyOn(fs.promises, 'readFile');
       const outPath = await generateExcel(parseMarkdown(IMAGE_MD), inputFile, outputDir);
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(outPath);
+      const quoteReads = readFile.mock.calls.filter(([file]) => String(file).endsWith('quote.png'));
+      readFile.mockRestore();
 
-      const media = wb.model.media as Array<{ extension: string }>;
-      // body.png・list.webp（PNGに変換）・quote.png（2回使うが1つ）の3つ
-      expect(media.map((m) => m.extension)).toEqual(['png', 'png', 'png']);
+      expect(imagesOf(await readSheet(outPath)).map((image) => image.type)).toEqual([
+        'png',
+        'png',
+        'png',
+        'png',
+      ]);
+      // quote.png は2回使うが1回だけ読み込む
+      expect(quoteReads).toHaveLength(1);
     });
 
     it('{{記号.text}} のセルには画像を貼らず、{{記号.images}} のセルに貼り付ける', async () => {
       await writeImages();
       const templatePath = path.join(tmpDir, 'custom-images.xlsx');
-      const tplWb = new ExcelJS.Workbook();
-      const tplWs = tplWb.addWorksheet('テンプレート');
-      tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##.body.text}}';
-      tplWs.getRow(1).getCell(2).value = '{{##.>.text}}';
-      tplWs.getRow(1).getCell(3).value = '{{##.images}}{{/each}}';
-      await tplWb.xlsx.writeFile(templatePath);
+      await writeTemplate(templatePath, {
+        rows: [['{{#each ## steps}}{{##.body.text}}', '{{##.>.text}}', '{{##.images}}{{/each}}']],
+      });
 
       const outPath = await generateExcel(
         parseMarkdown(IMAGE_MD),
@@ -418,23 +441,20 @@ describe('generateExcel', () => {
         outputDir,
         templatePath,
       );
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(outPath);
-      const ws = wb.worksheets[0];
+      const ws = await readSheet(outPath);
 
-      expect(imagesInColumn(ws, 1)).toHaveLength(0);
-      expect(imagesInColumn(ws, 2)).toHaveLength(0);
+      expect(imagesInColumn(ws, 'A')).toHaveLength(0);
+      expect(imagesInColumn(ws, 'B')).toHaveLength(0);
       // 本文・リスト・引用2つ。画像だけのセルは上端（余白8px）から貼り付ける
-      const images = imagesInColumn(ws, 3);
+      const images = imagesInColumn(ws, 'C');
       expect(images).toHaveLength(4);
-      expect(images[0].range.tl.nativeRowOff).toBe(8 * 9525);
-      expect(ws.getRow(1).getCell(3).value).toBe('');
+      expect(images[0].anchor.from.rowOff).toBe(8);
+      expect(valueAt(ws, 'C1')).toBe('');
       // 大きさで指定し（Excelで行が低く表示されても潰れない）、ファイルの行の高さには収まる
-      const rowHeightPx = ws.getRow(1).height! / 0.75;
-      for (const { range } of images) {
-        const { height } = imageExt(range);
-        expect(height).toBeGreaterThan(0);
-        expect(range.tl.nativeRowOff / 9525 + height).toBeLessThan(rowHeightPx);
+      const rowHeightPx = heightOf(ws, 1)! / 0.75;
+      for (const image of images) {
+        expect(image.height).toBeGreaterThan(0);
+        expect((image.anchor.from.rowOff ?? 0) + image.height!).toBeLessThan(rowHeightPx);
       }
     });
 
@@ -449,16 +469,12 @@ describe('generateExcel', () => {
         .join('\n');
 
       const outPath = await generateExcel(parseMarkdown(`# 見出し\n\n${md}`), inputFile, outputDir);
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(outPath);
 
-      const images = wb.worksheets[0].getImages();
+      const images = imagesOf(await readSheet(outPath));
       expect(images).toHaveLength(5);
-      const media = wb.model.media as unknown as Array<{ buffer: Buffer }>;
-      for (const { imageId, range } of images) {
-        const { width, height } = await sharp(media[Number(imageId)].buffer).metadata();
-        const ext = imageExt(range);
-        expect(ext.width / ext.height).toBeCloseTo(width / height, 1);
+      for (const image of images) {
+        const { width, height } = await sharp(image.data).metadata();
+        expect(image.width! / image.height!).toBeCloseTo(width / height, 1);
       }
     });
 
@@ -469,96 +485,82 @@ describe('generateExcel', () => {
         await sharp({ create }).png().toFile(path.join(tmpDir, 'root.png'));
       }
 
-      /** テンプレートのワークブックを書き出してExcelを生成し、出力を読み直す */
-      async function generate(tplWb: ExcelJS.Workbook, md: string): Promise<ExcelJS.Worksheet> {
+      /** テンプレートを書き出してExcelを生成し、出力を読み直す */
+      async function generate(template: Omit<WriteSheet, 'name'>, md: string): Promise<Sheet> {
         const templatePath = path.join(tmpDir, 'custom-root.xlsx');
-        await tplWb.xlsx.writeFile(templatePath);
-        const outPath = await generateExcel(
-          parseMarkdown(md),
-          inputFile,
-          outputDir,
-          templatePath,
-        );
-        const wb = new ExcelJS.Workbook();
-        await wb.xlsx.readFile(outPath);
-        return wb.worksheets[0];
+        await writeTemplate(templatePath, template);
+        const outPath = await generateExcel(parseMarkdown(md), inputFile, outputDir, templatePath);
+        return readSheet(outPath);
       }
 
       const ROOT_MD = '前文 ![図](./root.png)\n\n# 見出し\n\n## 手順1\n\n本文\n';
 
       it('結合セルの {{root.body}} の画像を結合範囲の幅で中央に置き、行を広げる', async () => {
         await writeRootImage();
-        const tplWb = new ExcelJS.Workbook();
-        const tplWs = tplWb.addWorksheet('テンプレート');
-        tplWs.getColumn(1).width = 20;
-        tplWs.getColumn(2).width = 30;
-        tplWs.getColumn(3).width = 40;
-        tplWs.getRow(1).height = 20;
-        tplWs.getRow(1).getCell(1).value = '{{root.body}}';
-        tplWs.mergeCells('A1:C1');
+        const ws = await generate(
+          {
+            rows: [['{{root.body}}']],
+            columns: [{ width: 20 }, { width: 30 }, { width: 40 }],
+            rowDefs: new Map([[0, { height: 20 }]]),
+            merges: ['A1:C1'],
+          },
+          ROOT_MD,
+        );
 
-        const ws = await generate(tplWb, ROOT_MD);
-
-        const [image] = ws.getImages();
+        const [image] = imagesOf(ws);
         // 列の幅は 145, 215, 285px で合計645px。画像の幅は80%の516px
-        expect(image.range.tl.nativeCol).toBe(0);
-        const ext = imageExt(image.range);
-        expect(ext.width).toBe(516);
-        expect(image.range.tl.nativeColOff / 9525).toBe(65);
-        expect(ext.width / ext.height).toBeCloseTo(3, 1);
-        expect(image.range.tl.nativeRowOff / 9525 + ext.height).toBeLessThan(
-          ws.getRow(1).height! / 0.75,
+        expect(image.anchor.from.col).toBe(0);
+        expect(image.width).toBe(516);
+        expect(image.anchor.from.colOff).toBe(65);
+        expect(image.width! / image.height!).toBeCloseTo(3, 1);
+        expect((image.anchor.from.rowOff ?? 0) + image.height!).toBeLessThan(
+          heightOf(ws, 1)! / 0.75,
         );
       });
 
       it('行ループが無いテンプレートでも画像を貼り付ける', async () => {
         await writeRootImage();
-        const tplWb = new ExcelJS.Workbook();
-        tplWb.addWorksheet('テンプレート').getRow(1).getCell(1).value = '{{root.body}}';
+        const ws = await generate({ rows: [['{{root.body}}']] }, ROOT_MD);
 
-        const ws = await generate(tplWb, ROOT_MD);
-
-        expect(ws.getImages()).toHaveLength(1);
+        expect(imagesOf(ws)).toHaveLength(1);
       });
 
       it('行ループより下の行の画像は、展開後の行に貼り付ける', async () => {
         await writeRootImage();
-        const tplWb = new ExcelJS.Workbook();
-        const tplWs = tplWb.addWorksheet('テンプレート');
-        tplWs.getRow(1).getCell(1).value = '{{#each ## steps}}{{##}}';
-        tplWs.getRow(2).getCell(1).value = '{{root.body}}';
-
         const ws = await generate(
-          tplWb,
+          { rows: [['{{#each ## steps}}{{##}}'], ['{{root.body}}']] },
           '前文 ![図](./root.png)\n\n# 見出し\n\n## 手順1\n\n## 手順2\n\n## 手順3\n',
         );
 
-        const [image] = ws.getImages();
-        expect(image.range.tl.nativeRow).toBe(3);
-        expect(ws.getRow(4).getCell(1).value).toContain('前文');
-        expect(ws.getRow(4).height! / 0.75).toBeGreaterThan(
-          image.range.tl.nativeRowOff / 9525 + imageExt(image.range).height,
+        const [image] = imagesOf(ws);
+        expect(image.anchor.from.row).toBe(3);
+        expect(valueAt(ws, 'A4')).toContain('前文');
+        expect(heightOf(ws, 4)! / 0.75).toBeGreaterThan(
+          (image.anchor.from.rowOff ?? 0) + image.height!,
         );
       });
 
       it('文章に合わせて行を広げるが、変数の無いセルの行とテンプレートより低い高さには変えない', async () => {
-        const tplWb = new ExcelJS.Workbook();
-        const tplWs = tplWb.addWorksheet('テンプレート');
-        tplWs.getColumn(1).width = 20;
-        const wrap = { wrapText: true };
-        tplWs.getRow(1).getCell(1).value = '{{root.body}}';
-        tplWs.getRow(1).getCell(1).alignment = wrap;
-        tplWs.getRow(2).getCell(1).value = '{{root.body}}';
-        tplWs.getRow(2).getCell(1).alignment = wrap;
-        tplWs.getRow(2).height = 300;
-        tplWs.getRow(3).getCell(1).value = '変数の無い\n長い\n文章';
-        tplWs.getRow(3).height = 15;
+        const wrap = { alignment: { wrapText: true } };
+        const ws = await generate(
+          {
+            rows: [
+              [{ value: '{{root.body}}', style: wrap }],
+              [{ value: '{{root.body}}', style: wrap }],
+              ['変数の無い\n長い\n文章'],
+            ],
+            columns: [{ width: 20 }],
+            rowDefs: new Map([
+              [1, { height: 300 }],
+              [2, { height: 15 }],
+            ]),
+          },
+          `${'長い前文です。'.repeat(20)}\n\n# 見出し\n`,
+        );
 
-        const ws = await generate(tplWb, `${'長い前文です。'.repeat(20)}\n\n# 見出し\n`);
-
-        expect(ws.getRow(1).height).toBeGreaterThan(15);
-        expect(ws.getRow(2).height).toBe(300);
-        expect(ws.getRow(3).height).toBe(15);
+        expect(heightOf(ws, 1)).toBeGreaterThan(15);
+        expect(heightOf(ws, 2)).toBe(300);
+        expect(heightOf(ws, 3)).toBe(15);
       });
     });
 
@@ -566,10 +568,8 @@ describe('generateExcel', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const doc = parseMarkdown('# 見出し\n\n## 手順1\n\n> ![無い](./missing.png)\n');
       const outPath = await generateExcel(doc, inputFile, outputDir);
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(outPath);
 
-      expect(wb.worksheets[0].getImages()).toHaveLength(0);
+      expect(imagesOf(await readSheet(outPath))).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('./missing.png'));
       warn.mockRestore();
     });
@@ -577,12 +577,10 @@ describe('generateExcel', () => {
 
   it('デフォルトテンプレートの結合セルが出力後も維持される', async () => {
     const outPath = await generateExcel(SAMPLE_DOC, inputFile, outputDir);
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(outPath);
-    const ws = wb.worksheets[0];
-    expect(ws.getCell('B1').isMerged).toBe(true);
-    expect(ws.getCell('H1').isMerged).toBe(true);
-    expect(ws.getCell('B2').isMerged).toBe(true);
+    const ws = await readSheet(outPath);
+    // B1:I1（タイトル）と B2:I2（出力日・前文）
+    expect(ws.merges).toContainEqual({ startRow: 0, startCol: 1, endRow: 0, endCol: 8 });
+    expect(ws.merges).toContainEqual({ startRow: 1, startCol: 1, endRow: 1, endCol: 8 });
   });
 
   it('テンプレートファイルが存在しない場合は GeneratorError をスローする', async () => {

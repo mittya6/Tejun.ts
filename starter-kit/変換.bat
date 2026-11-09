@@ -6,7 +6,7 @@ rem  ・ダブルクリック         … このフォルダの .md をすべて変換
 rem  ・.md をドラッグ＆ドロップ … ドロップしたファイルだけ変換
 rem
 rem  変換結果は「output」フォルダに出力されます。
-rem  必要な環境: Node.js 22 以上
+rem  必要な環境: Node.js 24 以上
 rem ============================================================
 setlocal
 cd /d "%~dp0"
@@ -16,7 +16,7 @@ set TEJUN=npx --yes github:mittya6/Tejun.ts
 
 where node >nul 2>&1
 if errorlevel 1 (
-  echo Node.js が見つかりません。Node.js 22 以上をインストールしてください。
+  echo Node.js が見つかりません。Node.js 24 以上をインストールしてください。
   echo https://nodejs.org/
   pause
   exit /b 1
