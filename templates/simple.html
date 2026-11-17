@@ -6,41 +6,139 @@
 <title>{{meta.title}}</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--ink:#1a1a1a;--muted:#6b6b6b;--border:#ddd;--ok:#1a7a4c}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  background:#ffffff;color:var(--ink);line-height:1.7;font-size:15px}
-.page{max-width:760px;margin:0 auto;padding:40px 24px}
+html{scroll-behavior:smooth}
+:root{
+  --ink:#1f2430;--muted:#5b6270;--border:#e2e5ea;--rule:#d0d4dc;--code-bg:#f3f4f7;
+  --accent:#2952cc;--accent-bg:#eef1fb;
+  --ok:#1a7a4c;--ok-bg:#eaf6ef;
+  --space-xs:4px;--space-sm:8px;--space-md:16px;--space-lg:32px;--space-xl:48px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif;
+  background:#ffffff;color:var(--ink);line-height:1.8;font-size:16px}
+.page{max-width:820px;margin:0 auto;padding:var(--space-xl) 24px}
 
-.doc-header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:32px}
-.doc-title{font-size:1.7rem;font-weight:800;line-height:1.35}
-.doc-meta{font-size:.8rem;color:var(--muted)}
-.doc-overview{margin-bottom:32px}
+/* ── Header（対比: タイトルを大きく強く、メタ情報は小さく控えめに） ── */
+.doc-header{border-bottom:1px solid var(--rule);padding-bottom:var(--space-md);margin-bottom:var(--space-xl)}
+.doc-title{font-size:2rem;font-weight:800;line-height:1.35;letter-spacing:-.01em;margin-bottom:var(--space-sm)}
+.doc-meta{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 
-.category{margin-bottom:40px}
-.category-title{font-size:1.25rem;font-weight:800;margin-bottom:16px}
-.step{margin-bottom:24px;page-break-inside:avoid;break-inside:avoid}
-.step-ttl{font-size:1.05rem;font-weight:700;margin-bottom:6px}
-.step-num{color:var(--muted);margin-right:8px}
-.expected{margin-top:8px;padding-left:12px;border-left:3px solid var(--ok)}
-.expected-label{font-size:.75rem;font-weight:700;color:var(--ok)}
+.doc-overview{margin-bottom:var(--space-xl)}
 
-.content p{margin-bottom:.6em}
-.content p:last-child{margin-bottom:0}
-.content ul,.content ol{padding-left:18px;margin-bottom:.6em}
-.content code{background:#eee;padding:1px 5px;border-radius:3px;font-size:.85em;font-family:'Courier New',monospace}
-.content pre{background:#eee;padding:10px 12px;border-radius:5px;overflow-x:auto;font-size:.85em;margin-bottom:.6em}
-.content pre code{background:transparent;padding:0}
-.content table{border-collapse:collapse;margin-bottom:16px}
-.content table:last-child{margin-bottom:0}
-.content th,.content td{border:1px solid var(--border);padding:8px 12px;vertical-align:top}
-.content th{background:#f5f5f5;font-weight:600}
+/* ── 大項目（H2ごとにグループ化。見出しは1回だけ表示） ── */
+.category{margin-bottom:var(--space-xl)}
+.category img{max-width:66.67%;height:auto}
+.category-title{font-size:1.5rem;font-weight:800;line-height:1.4;border-bottom:1px solid var(--rule);
+  padding-bottom:var(--space-sm);margin-bottom:var(--space-lg)}
+.category-body{margin-bottom:var(--space-lg)}
+
+/* ── Step（整列: 番号カラムを固定し、見出し・本文の左端を揃える） ── */
+.step{display:grid;grid-template-columns:48px 1fr;column-gap:var(--space-md);align-items:center;
+  padding-bottom:var(--space-lg);margin-bottom:var(--space-lg);border-bottom:1px solid var(--border);
+  page-break-inside:avoid;break-inside:avoid}
+.step:last-child{border-bottom:none;margin-bottom:0}
+
+/* 枠線なしの薄い背景にし、「3-10」のような桁の多い番号でも詰まらない幅にする */
+.step-num{grid-column:1;grid-row:1;width:48px;height:36px;background:var(--accent-bg);
+  border-radius:6px;color:var(--accent);font-size:.95rem;font-weight:800;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+  display:flex;align-items:center;justify-content:center}
+
+.step-head{grid-column:2;grid-row:1}
+.step-ttl{font-size:1.15rem;font-weight:700}
+
+/* 近接: ヘッダーと本文の間は広め、各ブロック内のラベルと内容は密着させる */
+.step-body{grid-column:1/-1;grid-row:2;margin-top:var(--space-md);margin-left:10px}
+.step-block{margin-bottom:var(--space-md)}
+.step-block:last-child{margin-bottom:0}
+/* 期待される結果だけを薄い緑のパネルにして目立たせる */
+.step-block.expected{background:var(--ok-bg);border-radius:6px;padding:12px var(--space-md)}
+.step-block-label{font-size:.78rem;font-weight:700;letter-spacing:.06em;margin-bottom:var(--space-xs)}
+.step-block.expected .step-block-label{color:var(--ok)}
+.step-block.expected .step-block-label::before{content:"✓";margin-right:.4em}
+
+/* Markdown本文（概要・大項目直下・手順内で共通） */
+.md-content p{margin-bottom:.6em}
+.md-content p:last-child{margin-bottom:0}
+/* リストの記号・番号の左端を本文の左端に揃える（記号の幅だけ字下げする） */
+.page ul,.page ol{margin-bottom:.6em}
+.page ul{padding-left:1.1em}
+.page ol{padding-left:1.4em}
+.page li{margin-bottom:.2em}
+.md-content code{background:var(--code-bg);padding:1px 5px;border-radius:3px;
+  font-size:.85em;font-family:ui-monospace,Consolas,'Cascadia Mono',monospace}
+.md-content pre{background:var(--code-bg);padding:10px 12px;border-radius:5px;
+  overflow-x:auto;font-size:.85em;margin-bottom:.6em}
+.md-content pre code{background:transparent;padding:0}
+.md-content strong{font-weight:600}
+.md-content table{border-collapse:collapse;margin-bottom:var(--space-md)}
+.md-content table:last-child{margin-bottom:0}
+.md-content th,.md-content td{border:1px solid var(--border);padding:var(--space-sm) 12px;vertical-align:top}
+.md-content th{background:#f5f5f5;font-weight:600}
 /* 列揃えの指定（align属性）がある場合はそちらを優先する */
-.content th:not([align]){text-align:left}
-.content img{max-width:100%;max-height:320px;object-fit:contain;border:1px solid var(--border);display:block;margin-top:8px}
+.md-content th:not([align]){text-align:left}
+.step-img{max-width:100%;max-height:320px;object-fit:contain;
+  border:1px solid var(--border);margin-top:var(--space-sm);display:block}
+
+/* ── 画像の拡大表示（クリックで画面中央に拡大し、画像または背景をもう一度クリックで閉じる。JS不使用） ── */
+.img-zoom{cursor:zoom-in}
+.img-zoom:has(:checked){cursor:zoom-out}
+.img-zoom:has(:checked)::before{content:"";position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.7);animation:img-zoom-fade .25s ease-out}
+.img-zoom:has(:checked) img{position:fixed;top:50%;left:50%;z-index:101;
+  width:auto;height:auto;max-width:90vw;max-height:90vh;margin:0;border:none;
+  transform:translate(-50%,-50%);box-shadow:0 8px 32px rgba(0,0,0,.4);
+  animation:img-zoom-in .25s ease-out}
+@keyframes img-zoom-fade{from{opacity:0}}
+@keyframes img-zoom-in{from{opacity:0;transform:translate(-50%,-50%) scale(.85)}}
+
+/* ── 右メニュー（目次。スクロール位置に合わせて現在の項目を強調。:target-current 非対応のブラウザでは強調なし） ── */
+.category,.step{scroll-margin-top:var(--space-lg)}
+/* popover属性のブラウザ既定スタイル（中央配置・枠線・背景）を打ち消し、幅が広い場合は常に表示する */
+.toc{display:block;position:fixed;inset:auto;top:var(--space-xl);left:calc(50% + 410px + var(--space-xs));width:240px;
+  height:auto;max-height:calc(100vh - 2 * var(--space-xl));margin:0;padding:0 1em 0 0;border:none;
+  background:none;color:inherit;overflow-y:auto;font-size:.82rem;line-height:1.5}
+.toc-label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:var(--space-sm)}
+.toc > ol{scroll-target-group:auto}
+.toc ol{list-style:none}
+/* 目次は .page の中にあるため、本文用のリストの余白を打ち消す */
+.toc ol,.toc li{margin:0;padding:0}
+.toc ol ol{margin:var(--space-xs) 0 var(--space-sm)}
+.toc a{display:block;padding:3px var(--space-sm);border-left:2px solid var(--border);
+  color:var(--muted);text-decoration:none}
+.toc > ol > li > a{font-weight:700;color:var(--ink)}
+.toc ol ol a{padding-left:var(--space-md)}
+.toc a:hover{color:var(--accent)}
+.toc a:target-current{border-left-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+/* 幅が狭い場合はメニューアイコンを表示し、押すと右端から目次を表示する（外側クリック・Escで閉じる） */
+.toc-toggle{display:none;position:fixed;top:var(--space-md);right:var(--space-md);z-index:10;
+  width:40px;height:40px;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;
+  box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.toc-toggle:hover{color:var(--accent);border-color:var(--accent)}
+/* 本文（820px）の右に目次（240px）とスクロールバーが収まらない幅で切り替える */
+@media (max-width:1340px){
+  .toc-toggle{display:flex}
+  .toc:not(:popover-open){display:none}
+  .toc{top:0;right:0;left:auto;width:min(300px,85vw);height:100vh;max-height:none;
+    padding:var(--space-lg) var(--space-md);background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15)}
+  .toc::backdrop{background:rgba(0,0,0,.3)}
+}
+
+/* ── Footer ──────────────────────────────── */
+.doc-footer{text-align:center;padding-top:var(--space-md);margin-top:var(--space-sm);
+  border-top:1px solid var(--border);font-size:.75rem;color:var(--muted)}
 
 @media print{
+  .toc-toggle{display:none}
   .page{max-width:none;padding:0}
   body{font-size:12px}
+  /* 目次はヘッダーの後に通常の流れで表示する（幅が狭い場合の表示も打ち消す） */
+  .toc,.toc:not(:popover-open){display:block;position:static;width:auto;height:auto;max-height:none;
+    margin-bottom:var(--space-xl);padding:0;background:none;box-shadow:none;overflow:visible}
+  .toc > ol{scroll-target-group:none}
+  /* 大項目（H1）ごとに改ページする */
+  .category{break-before:page}
 }
 </style>
 </head>
@@ -49,30 +147,80 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 <header class="doc-header">
   <div class="doc-title">{{meta.title}}</div>
-  <div class="doc-meta">作成日: {{meta.date}}{{#if meta.update}} ／ 更新日: {{meta.update}}{{/if}}</div>
+  <div class="doc-meta">作成日: {{meta.date}}</div>
+  <div class="doc-meta">更新日: {{meta.update}}</div>
 </header>
 
-<section class="doc-overview content">{{#.body}}</section>
+{{#if root.body}}
+<section class="doc-overview md-content">
+  {{root.body}}
+</section>
+{{/if}}
 
-{{#each ## steps}}
-<section class="category">
-  <h2 class="category-title">{{##.index}}. {{##}}</h2>
-  <div class="content">{{##.body}}</div>
-  {{#each ### steps}}
-  <section class="step">
-    <div class="step-ttl"><span class="step-num">{{##.index}}-{{###.index}}</span>{{###}}</div>
-    <div class="content">{{###.body}}</div>
-    {{#if ###.>}}
-    <div class="expected">
-      <div class="expected-label">期待される結果</div>
-      <div class="content">{{###.>}}</div>
+<nav class="toc" id="toc" popover aria-label="目次">
+  <div class="toc-label">目次</div>
+  <ol>
+    {{#each # steps}}
+    <li>
+      <a href="#sec-{{#.index}}">{{#.index}}. {{#}}</a>
+      {{#if ##}}
+      <ol>
+        {{#each ## steps}}
+        <li><a href="#step-{{#.index}}-{{##.index}}">{{#.index}}-{{##.index}} {{##}}</a></li>
+        {{/each}}
+      </ol>
+      {{/if}}
+    </li>
+    {{/each}}
+  </ol>
+</nav>
+
+
+{{#each # steps}}
+<section class="category" id="sec-{{#.index}}">
+  <h2 class="category-title">{{#.index}}. {{#}}</h2>
+  {{#if #.body}}
+  <div class="category-body md-content">{{#.body}}</div>
+  {{/if}}
+  {{#each ## steps}}
+  <section class="step" id="step-{{#.index}}-{{##.index}}">
+    <div class="step-num">{{#.index}}-{{##.index}}</div>
+    <div class="step-head">
+      <h3 class="step-ttl">{{##}}</h3>
     </div>
-    {{/if}}
+    <div class="step-body">
+      <div class="step-block instruction">
+        <div class="step-content md-content">{{##.body}}</div>
+      </div>
+      {{#if ##.>}}
+      <div class="step-block expected">
+        <div class="step-block-label">期待される結果</div>
+        <div class="step-content md-content">{{##.>}}</div>
+      </div>
+      {{/if}}
+    </div>
   </section>
   {{/each}}
 </section>
 {{/each}}
 
+<footer class="doc-footer">
+  Generated by Tejun.ts &mdash; ${date}
+</footer>
+
 </div>
+
+<button type="button" class="toc-toggle" popovertarget="toc" aria-label="目次を開く">
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+
+<script>
+// 幅が狭い場合に開いた目次は、項目を選んだら閉じる
+document.getElementById('toc').addEventListener('click', function (e) {
+  if (e.target.closest('a') && this.matches(':popover-open')) this.hidePopover();
+});
+</script>
 </body>
 </html>
