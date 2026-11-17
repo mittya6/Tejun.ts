@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{meta.title}}</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+/* 1スライド＝1画面。↓↑ / PageDown / PageUp / Space で1枚ずつ送る（JS不使用） */
+html{scroll-snap-type:y mandatory;scroll-behavior:smooth}
+:root{
+  --ink:#1a1a1a;--muted:#6b6b6b;--border:#ddd;--bg:#f4f5f7;
+  --accent:#2952cc;--accent-bg:#eef1fb;
+  --ok:#1a7a4c;--ok-bg:#eaf6ef;
+  --space-xs:4px;--space-sm:8px;--space-md:16px;--space-lg:32px;--space-xl:56px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.7;font-size:clamp(16px,1.6vw,22px)}
+
+/* ── スライド共通（内容が1画面に収まらない場合はスライドが縦に伸びる） ── */
+.slide{position:relative;min-height:100vh;min-height:100dvh;
+  scroll-snap-align:start;scroll-snap-stop:always;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:var(--space-xl) clamp(24px,6vw,96px);background:#fff;border-bottom:1px solid var(--border)}
+.slide-footer{position:absolute;left:clamp(24px,6vw,96px);right:clamp(24px,6vw,96px);bottom:var(--space-md);
+  display:flex;justify-content:space-between;font-size:.65em;color:var(--muted)}
+
+/* ── 表紙 ── */
+.slide-cover{background:var(--accent);color:#fff}
+.slide-cover .slide-footer{color:rgba(255,255,255,.7)}
+.cover-title{font-size:2.6em;font-weight:800;line-height:1.3;margin-bottom:var(--space-lg)}
+.cover-meta{font-size:.8em;opacity:.85}
+.cover-meta span+span::before{content:"／";margin:0 .5em}
+.cover-overview{margin-top:var(--space-lg);max-width:40em;opacity:.95}
+.cover-hint{position:absolute;left:50%;bottom:var(--space-xl);transform:translateX(-50%);
+  font-size:.7em;opacity:.7}
+
+/* ── 大項目の区切り ── */
+.slide-section{background:var(--accent-bg)}
+.section-num{font-size:4em;font-weight:800;line-height:1;color:var(--accent);margin-bottom:var(--space-md)}
+.section-title{font-size:2em;font-weight:800;line-height:1.35}
+.section-body{margin-top:var(--space-lg);max-width:40em}
+
+/* ── 手順（左に説明、右に画像。画像がない手順は説明を全幅で表示） ── */
+.slide-step{justify-content:flex-start}
+.step-head{display:flex;align-items:center;gap:var(--space-md);
+  padding-bottom:var(--space-md);margin-bottom:var(--space-lg);border-bottom:3px solid var(--accent)}
+.step-num{flex:none;padding:var(--space-xs) var(--space-md);border-radius:8px;
+  background:var(--accent);color:#fff;font-size:1.1em;font-weight:800}
+.step-category{font-size:.7em;color:var(--muted)}
+.step-ttl{font-size:1.5em;font-weight:800;line-height:1.35}
+.step-body{flex:1;display:grid;grid-template-columns:2fr 3fr;gap:var(--space-lg);align-items:center}
+.step-body:not(:has(.step-images img)){grid-template-columns:1fr;align-items:start}
+.step-text,.step-images{min-width:0}
+.step-images{display:flex;flex-direction:column;gap:var(--space-md);align-items:center}
+.step-images:not(:has(img)){display:none}
+.step-images img{display:block;max-width:100%;max-height:calc(100vh - 260px);width:auto;height:auto;
+  object-fit:contain;border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.expected{margin-top:var(--space-lg);padding:var(--space-sm) var(--space-md);
+  background:var(--ok-bg);border-left:5px solid var(--ok);border-radius:0 6px 6px 0}
+.expected-label{font-size:.7em;font-weight:700;color:var(--ok)}
+
+/* ── 終了 ── */
+.slide-end{align-items:center;text-align:center}
+.end-title{font-size:2em;font-weight:800}
+
+/* Markdown本文 */
+.md-content p{margin-bottom:.6em}
+.md-content p:last-child{margin-bottom:0}
+.md-content ul,.md-content ol{margin-bottom:.6em}
+.md-content ul{padding-left:1.1em}
+.md-content ol{padding-left:1.4em}
+.md-content li{margin-bottom:.3em}
+.md-content code{background:#eee;padding:1px 5px;border-radius:3px;
+  font-size:.85em;font-family:'Courier New',monospace;color:var(--ink)}
+.md-content pre{background:#eee;padding:10px 12px;border-radius:5px;
+  overflow-x:auto;font-size:.8em;margin-bottom:.6em}
+.md-content pre code{background:transparent;padding:0}
+.md-content strong{font-weight:700}
+.md-content table{border-collapse:collapse;margin-bottom:var(--space-md)}
+.md-content table:last-child{margin-bottom:0}
+.md-content th,.md-content td{border:1px solid var(--border);padding:var(--space-xs) 12px;vertical-align:top}
+.md-content th{background:#f5f5f5;font-weight:600}
+.md-content th:not([align]){text-align:left}
+.md-content img{max-width:100%;max-height:50vh;height:auto}
+
+/* ── 画像の拡大表示（クリックで画面中央に拡大し、もう一度クリックで閉じる。JS不使用） ── */
+.img-zoom{cursor:zoom-in}
+.img-zoom:has(:checked){cursor:zoom-out}
+.img-zoom:has(:checked)::before{content:"";position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.7);animation:img-zoom-fade .25s ease-out}
+.img-zoom:has(:checked) img{position:fixed;top:50%;left:50%;z-index:101;
+  width:auto;height:auto;max-width:90vw;max-height:90vh;margin:0;border:none;
+  transform:translate(-50%,-50%);box-shadow:0 8px 32px rgba(0,0,0,.4);
+  animation:img-zoom-in .25s ease-out}
+@keyframes img-zoom-fade{from{opacity:0}}
+@keyframes img-zoom-in{from{opacity:0;transform:translate(-50%,-50%) scale(.85)}}
+
+/* ── 進捗バー（スクロール連動アニメーション対応ブラウザのみ表示） ── */
+.progress{display:none}
+@supports (animation-timeline: scroll()){
+  .progress{display:block;position:fixed;top:0;left:0;right:0;height:4px;z-index:50;
+    background:var(--ok);transform-origin:0 50%;
+    animation:progress linear both;animation-timeline:scroll(root block)}
+  @keyframes progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+}
+
+/* 幅が狭い場合は画像を説明の下に回す */
+@media (max-width:760px){
+  .step-body{grid-template-columns:1fr}
+}
+
+/* 印刷・PDF：A4横に1スライド1ページ */
+@page{size:A4 landscape;margin:12mm}
+@media print{
+  html{scroll-snap-type:none}
+  body{background:#fff;font-size:14px}
+  .progress,.cover-hint{display:none}
+  .slide{min-height:calc(210mm - 24mm);break-after:page;break-inside:avoid;border:none;padding:var(--space-lg)}
+  .slide:last-child{break-after:auto}
+  .slide-cover,.slide-section,.step-num{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  .step-body{grid-template-columns:2fr 3fr}
+  .step-images img{max-height:110mm;box-shadow:none}
+}
+</style>
+</head>
+<body>
+<div class="progress" aria-hidden="true"></div>
+
+<section class="slide slide-cover">
+  <h1 class="cover-title">{{meta.title}}</h1>
+  <div class="cover-meta">
+    <span>作成日: {{meta.date}}</span>{{#if meta.update}}<span>更新日: {{meta.update}}</span>{{/if}}{{#if meta.author}}<span>作成者: {{meta.author}}</span>{{/if}}
+  </div>
+  {{#if root.body}}
+  <div class="cover-overview md-content">{{root.body}}</div>
+  {{/if}}
+  <div class="cover-hint">↓ キー / Space で次へ</div>
+</section>
+
+{{#each # steps}}
+<section class="slide slide-section" id="sec-{{#.index}}">
+  <div class="section-num">{{#.index}}</div>
+  <h2 class="section-title">{{#}}</h2>
+  {{#if #.body}}
+  <div class="section-body md-content">{{#.body}}</div>
+  {{/if}}
+  <div class="slide-footer"><span>{{meta.title}}</span><span>{{#.index}}</span></div>
+</section>
+{{#each ## steps}}
+<section class="slide slide-step" id="step-{{#.index}}-{{##.index}}">
+  <div class="step-head">
+    <div class="step-num">{{#.index}}-{{##.index}}</div>
+    <div>
+      <div class="step-category">{{#}}</div>
+      <h3 class="step-ttl">{{##}}</h3>
+    </div>
+  </div>
+  <div class="step-body">
+    <div class="step-text">
+      <div class="md-content">{{##.body.text}}</div>
+      {{#if ##.>}}
+      <div class="expected">
+        <div class="expected-label">確認ポイント</div>
+        <div class="md-content">{{##.>.text}}</div>
+      </div>
+      {{/if}}
+    </div>
+    <div class="step-images">{{##.images}}</div>
+  </div>
+  <div class="slide-footer"><span>{{meta.title}}</span><span>{{#.index}}-{{##.index}}</span></div>
+</section>
+{{/each}}
+{{/each}}
+
+<section class="slide slide-end">
+  <div class="end-title">以上</div>
+  <div class="slide-footer"><span>{{meta.title}}</span><span>Generated by Tejun.ts &mdash; ${date}</span></div>
+</section>
+
+</body>
+</html>
