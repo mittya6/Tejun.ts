@@ -8,67 +8,59 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 :root{
-  --ink:#1f2430;--muted:#5b6270;--border:#e2e5ea;--rule:#d0d4dc;--code-bg:#f3f4f7;
-  --accent:#2952cc;--accent-bg:#eef1fb;--accent-2:#7b3fe4;--line:#cdd5f3;
-  --grad:linear-gradient(135deg,#1e3a9e 0%,#2952cc 45%,#7b3fe4 100%);
-  --ok:#1a7a4c;--ok-bg:#eaf6ef;
+  /* 墨・朱・白の3色。朱は番号・ラベル・目次の現在位置にだけ使い、面には使わない */
+  --ink:#16181d;--muted:#555a64;--border:#dcdee2;--rule:#16181d;--code-bg:#f2f2f0;
+  --accent:#c8361b;
   --space-xs:4px;--space-sm:8px;--space-md:16px;--space-lg:32px;--space-xl:48px;
 }
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif;
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','BIZ UDPGothic','Hiragino Sans','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif;
   background:#ffffff;color:var(--ink);line-height:1.8;font-size:16px}
 .page{max-width:820px;margin:0 auto;padding:var(--space-xl) 24px}
+/* 見出しは約物を詰めて引き締める */
+.doc-title,.category-title,.step-ttl{font-feature-settings:"palt"}
 
-/* ── Header（グラデーションの帯に白文字のタイトル。日付は半透明のピルにまとめる） ── */
-.doc-header{position:relative;overflow:hidden;background:var(--grad);color:#fff;border-radius:14px;
-  padding:var(--space-xl) var(--space-lg) var(--space-lg);margin-bottom:var(--space-xl);
-  box-shadow:0 12px 32px rgba(41,82,204,.22)}
-/* 右上に淡い光の円を重ねて、帯が平板に見えないようにする */
-.doc-header::after{content:"";position:absolute;top:-80px;right:-60px;width:260px;height:260px;border-radius:50%;
-  background:radial-gradient(circle,rgba(255,255,255,.22),rgba(255,255,255,0) 70%);pointer-events:none}
-.doc-title{position:relative;font-size:2.1rem;font-weight:800;line-height:1.35;letter-spacing:-.01em;margin-bottom:var(--space-md)}
-.doc-meta{position:relative;display:inline-block;font-size:.8rem;letter-spacing:.04em;
-  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;
-  padding:2px 12px;margin-right:var(--space-sm)}
+/* ── Header（墨の帯に白文字のタイトル、左端に朱の太線。日付は帯の下に文書管理欄として並べる） ── */
+.doc-header{border-bottom:1px solid var(--rule);margin-bottom:var(--space-xl)}
+.doc-title{background:var(--ink);color:#fff;border-left:10px solid var(--accent);
+  padding:28px var(--space-lg);font-size:2.1rem;font-weight:700;line-height:1.35;letter-spacing:.02em}
+.doc-meta{display:inline-block;font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums;
+  padding:var(--space-sm) var(--space-md) var(--space-sm) 0}
+.doc-meta + .doc-meta{border-left:1px solid var(--border);padding-left:var(--space-md)}
 
 .doc-overview{margin-bottom:var(--space-xl)}
 
 /* ── 大項目（H2ごとにグループ化。見出しは1回だけ表示） ── */
 .category{margin-bottom:var(--space-xl)}
 .category img{max-width:66.67%;height:auto}
-/* 下線の代わりに左側へグラデーションの太線を付け、番号をアクセント色にする */
-.category-title{position:relative;font-size:1.5rem;font-weight:800;line-height:1.4;
-  padding-left:20px;margin-bottom:var(--space-lg)}
-.category-title::before{content:"";position:absolute;left:0;top:.15em;bottom:.15em;width:6px;border-radius:3px;
-  background:linear-gradient(180deg,var(--accent),var(--accent-2))}
-.category-num{color:var(--accent);margin-right:.2em}
+/* 上に太い墨の罫線を引き、番号を朱の大きな数字にする */
+.category-title{display:flex;align-items:baseline;gap:var(--space-md);border-top:3px solid var(--rule);
+  padding-top:var(--space-md);margin-bottom:var(--space-lg);font-size:1.6rem;font-weight:700;line-height:1.4}
+.category-num{flex:none;color:var(--accent);font-size:3.2rem;font-weight:800;line-height:1;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .category-body{margin-bottom:var(--space-lg)}
 
-/* ── Step（タイムライン: 番号カラムを固定し、番号同士を縦線でつなぐ） ── */
-.step{position:relative;display:grid;grid-template-columns:48px 1fr;column-gap:var(--space-md);align-items:start;
+/* ── Step（番号カラムを固定し、見出し・本文の左端を揃える。番号は塗りなしの太い数字） ── */
+.step{display:grid;grid-template-columns:56px 1fr;column-gap:var(--space-md);align-items:baseline;
   padding-bottom:var(--space-lg);page-break-inside:avoid;break-inside:avoid}
 .step:last-child{padding-bottom:0}
-/* 番号の中心から次の手順の番号の中心まで線を引く（番号の背後に隠れる） */
-.step::before{content:"";position:absolute;left:23px;top:18px;bottom:-18px;border-left:2px solid var(--line)}
-.step:last-child::before{display:none}
 
-/* グラデーションで塗りつぶした白文字。「3-10」のような桁の多い番号でも詰まらない幅にする */
-.step-num{position:relative;z-index:1;grid-column:1;grid-row:1;width:48px;height:36px;background:var(--grad);
-  border-radius:8px;color:#fff;font-size:.95rem;font-weight:800;
-  font-variant-numeric:tabular-nums;white-space:nowrap;box-shadow:0 3px 10px rgba(41,82,204,.3);
-  display:flex;align-items:center;justify-content:center}
+/* 「3-10」のような桁の多い番号でも折り返さない */
+.step-num{grid-column:1;grid-row:1;font-size:1.25rem;font-weight:800;line-height:1.4;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
 
-.step-head{grid-column:2;grid-row:1;min-height:36px;display:flex;align-items:center}
-.step-ttl{font-size:1.15rem;font-weight:700}
+.step-head{grid-column:2;grid-row:1;border-bottom:1px solid var(--border);padding-bottom:var(--space-xs)}
+.step-ttl{font-size:1.2rem;font-weight:700;line-height:1.4}
 
-/* 近接: ヘッダーと本文の間は広め、各ブロック内のラベルと内容は密着させる。本文は縦線の右側に置く */
-.step-body{grid-column:2;grid-row:2;margin-top:var(--space-sm);min-width:0}
+/* 近接: ヘッダーと本文の間は広め、各ブロック内のラベルと内容は密着させる */
+.step-body{grid-column:2;grid-row:2;margin-top:var(--space-md);min-width:0}
 .step-block{margin-bottom:var(--space-md)}
 .step-block:last-child{margin-bottom:0}
-/* 期待される結果だけを左に太線のある薄い緑のパネルにして目立たせる */
-.step-block.expected{background:var(--ok-bg);border-left:4px solid var(--ok);border-radius:0 6px 6px 0;padding:12px var(--space-md)}
-.step-block-label{font-size:.78rem;font-weight:700;letter-spacing:.06em;margin-bottom:var(--space-xs)}
-.step-block.expected .step-block-label{color:var(--ok)}
-.step-block.expected .step-block-label::before{content:"✓";margin-right:.4em}
+/* 期待される結果はチェック欄付きの枠にする（Excel のチェック列に対応） */
+.step-block.expected{display:grid;grid-template-columns:auto 1fr;column-gap:var(--space-md);
+  border:1px solid var(--rule);padding:12px var(--space-md)}
+.step-block-label{font-size:.85rem;font-weight:700;line-height:1.8;white-space:nowrap}
+.step-block.expected .step-block-label{color:var(--accent);display:flex;align-items:center;gap:.4em;height:1.8em}
+.step-block.expected .step-block-label::before{content:"";width:.95em;height:.95em;border:1.5px solid var(--ink)}
 
 /* Markdown本文（概要・大項目直下・手順内で共通） */
 .md-content p{margin-bottom:.6em}
@@ -78,9 +70,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
 .page ul{padding-left:1.1em}
 .page ol{padding-left:1.4em}
 .page li{margin-bottom:.2em}
-.md-content code{background:var(--code-bg);padding:1px 5px;border-radius:3px;
+.md-content code{background:var(--code-bg);padding:1px 5px;
   font-size:.85em;font-family:ui-monospace,Consolas,'Cascadia Mono',monospace}
-.md-content pre{background:var(--code-bg);padding:10px 12px;border-radius:5px;
+.md-content pre{background:var(--code-bg);padding:10px 12px;
   overflow-x:auto;font-size:.85em;margin-bottom:.6em}
 .md-content pre code{background:transparent;padding:0}
 .md-content strong{font-weight:600}
@@ -118,8 +110,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
 .toc{display:block;position:fixed;inset:auto;top:var(--space-xl);left:calc(var(--page-left) + var(--page-w) + var(--space-xs));width:240px;
   height:auto;max-height:calc(100vh - 2 * var(--space-xl));margin:0;padding:0 1em 0 0;border:none;
   background:none;color:inherit;overflow-y:auto;font-size:.82rem;line-height:1.5}
-.toc-label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.06em;margin-bottom:var(--space-sm)}
+.toc-label{font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:var(--space-sm)}
 .toc > ol{scroll-target-group:auto}
 .toc ol{list-style:none}
 /* 目次は .page の中にあるため、本文用のリストの余白を打ち消す */
@@ -129,21 +120,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
   color:var(--muted);text-decoration:none}
 .toc > ol > li > a{font-weight:700;color:var(--ink)}
 .toc ol ol a{padding-left:var(--space-md)}
-.toc a:hover{color:var(--accent)}
-.toc a:target-current{border-left-color:var(--accent);color:var(--accent);background:var(--accent-bg);
-  border-radius:0 4px 4px 0;font-weight:700}
+.toc a:hover{color:var(--ink);border-left-color:var(--ink)}
+.toc a:target-current{border-left:3px solid var(--accent);padding-left:calc(var(--space-sm) - 1px);
+  color:var(--ink);font-weight:700}
+.toc ol ol a:target-current{padding-left:calc(var(--space-md) - 1px)}
 /* 幅が狭い場合はメニューアイコンを表示し、押すと右端から目次を表示する（外側クリック・Escで閉じる） */
 .toc-toggle{display:none;position:fixed;top:var(--space-md);right:var(--space-md);z-index:10;
   width:40px;height:40px;align-items:center;justify-content:center;
-  border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;
-  box-shadow:0 1px 4px rgba(0,0,0,.12)}
-.toc-toggle:hover{color:var(--accent);border-color:var(--accent)}
+  border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+.toc-toggle:hover{background:var(--ink);color:#fff}
 /* ノートPCの幅までは目次を常に表示し、それより狭い幅で切り替える */
 @media (max-width:1023.98px){
   .toc-toggle{display:flex}
   .toc:not(:popover-open){display:none}
   .toc{top:0;right:0;left:auto;width:min(300px,85vw);height:100vh;max-height:none;
-    padding:var(--space-lg) var(--space-md);background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15)}
+    padding:var(--space-lg) var(--space-md);background:#fff;border-left:1px solid var(--ink)}
   .toc::backdrop{background:rgba(0,0,0,.3)}
 }
 
@@ -155,12 +146,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
   .toc-toggle{display:none}
   .page{max-width:none;width:auto;margin:0;padding:0}
   body{font-size:12px}
-  /* 背景色は既定では印刷されないため、ヘッダーと番号は背景に頼らない表示に戻す */
-  .doc-header{background:none;color:var(--ink);box-shadow:none;border-radius:0;padding:0 0 var(--space-md);
-    border-bottom:1px solid var(--rule)}
-  .doc-header::after{display:none}
-  .doc-meta{background:none;border:none;padding:0;color:var(--muted)}
-  .step-num{background:none;color:var(--accent);border:1.5px solid var(--accent);box-shadow:none}
+  /* 背景色は既定では印刷されないため、タイトルの帯は上下の罫線で挟む表示に戻す */
+  .doc-title{background:none;color:var(--ink);border-top:2px solid var(--rule);border-bottom:2px solid var(--rule);
+    padding:var(--space-md)}
   /* 目次はヘッダーの後に通常の流れで表示する（幅が狭い場合の表示も打ち消す） */
   .toc,.toc:not(:popover-open){display:block;position:static;width:auto;height:auto;max-height:none;
     margin-bottom:var(--space-xl);padding:0;background:none;box-shadow:none;overflow:visible}
@@ -206,7 +194,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
 
 {{#each # steps}}
 <section class="category" id="sec-{{#.index}}">
-  <h2 class="category-title"><span class="category-num">{{#.index}}.</span>{{#}}</h2>
+  <h2 class="category-title"><span class="category-num">{{#.index}}</span>{{#}}</h2>
   {{#if #.body}}
   <div class="category-body md-content">{{#.body}}</div>
   {{/if}}
@@ -222,7 +210,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','No
       </div>
       {{#if ##.>}}
       <div class="step-block expected">
-        <div class="step-block-label">期待される結果</div>
+        <div class="step-block-label">確認</div>
         <div class="step-content md-content">{{##.>}}</div>
       </div>
       {{/if}}
