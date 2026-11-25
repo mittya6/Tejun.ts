@@ -20,3 +20,14 @@ Thumbs.db
 
 # Env
 .env
+
+
+# skillsディレクトリ配下を一旦すべて無視する
+.claude/skills/*
+.claude/agents/*
+.agents/skills/*
+.agents/agents/*
+
+# 自作スキルだけホワイトリストで許可する（末尾のスラッシュ必須）
+!.claude/skills/eslint/
+!.claude/skills/push-main/
